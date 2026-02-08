@@ -14,7 +14,7 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random()*1e9);
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
     cb(null, `payment-${uniqueSuffix}${ext}`);
   },
@@ -36,7 +36,7 @@ const fileFilter = (req, file, cb) => {
 const paymentProofUpload = multer({
   storage: storage,
   limits: {
-    fileSize: 5*1024*1024, // 5 mb limit
+    fileSize: 5 * 1024 * 1024, // 5 mb limit
   },
   fileFilter: fileFilter,
 });

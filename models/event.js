@@ -34,7 +34,6 @@ const EventSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true, index: true },
     description: { type: String, required: true },
 
-    // Must reference Club, not User (organizer is a club)
     organizerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Club",
@@ -61,6 +60,7 @@ const EventSchema = new mongoose.Schema(
     // Registration
     registrationLimit: { type: Number, required: true, min: 1 },
     registrationFee: { type: Number, default: 0, min: 0 },
+    requiresApproval: { type: Boolean, default: false },
 
     status: {
       type: String,
@@ -102,10 +102,5 @@ EventSchema.pre("save", async function () {
     }
   }
 });
-
-// Indexes for better query performance
-EventSchema.index({ organizerId: 1, status: 1 });
-EventSchema.index({ eventStartDate: 1 });
-EventSchema.index({ tags: 1 });
 
 module.exports = mongoose.model("Event", EventSchema);

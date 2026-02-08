@@ -29,7 +29,4 @@ const feedbackSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-// Ensure one feedback per user per event
-feedbackSchema.index({ userId: 1, eventId: 1 }, { unique: true });
-
 module.exports = mongoose.model('Feedback', feedbackSchema);

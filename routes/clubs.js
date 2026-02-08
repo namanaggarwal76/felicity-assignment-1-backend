@@ -11,7 +11,9 @@ const router = express.Router();
 router.get("/", async (req, res) => {
   try {
     // Only show enabled clubs to public
-    const clubs = await Club.find({ enabled: true }).select("-password -followers.userId");
+    const clubs = await Club.find({ enabled: true }).select(
+      "-password -followers.userId",
+    );
     res.json(clubs);
   } catch (error) {
     console.error("Error fetching clubs:", error);
@@ -188,7 +190,8 @@ router.patch(
       if (website) updateData.website = website;
       if (socialLinks) updateData.socialLinks = socialLinks;
       if (establishedDate) updateData.establishedDate = establishedDate;
-      if (discordWebhook !== undefined) updateData.discordWebhook = discordWebhook;
+      if (discordWebhook !== undefined)
+        updateData.discordWebhook = discordWebhook;
       const club = await Club.findByIdAndUpdate(
         req.user._id,
         { $set: updateData },
@@ -219,8 +222,8 @@ router.post(
       const clubId = req.user._id;
 
       if (!reason || reason.trim().length < 10) {
-        return res.status(400).json({ 
-          error: "Please provide a reason (minimum 10 characters)" 
+        return res.status(400).json({
+          error: "Please provide a reason (minimum 10 characters)",
         });
       }
 
@@ -256,9 +259,11 @@ router.post(
       });
     } catch (error) {
       console.error("Error creating password reset request:", error);
-      res.status(500).json({ error: "Failed to submit password reset request" });
+      res
+        .status(500)
+        .json({ error: "Failed to submit password reset request" });
     }
-  }
+  },
 );
 
 // GET /api/clubs/my-password-requests - Get club's password reset history
@@ -268,8 +273,8 @@ router.get(
   checkRole(["club"]),
   async (req, res) => {
     try {
-      const requests = await PasswordResetRequest.find({ 
-        clubId: req.user._id 
+      const requests = await PasswordResetRequest.find({
+        clubId: req.user._id,
       })
         .sort({ createdAt: -1 })
         .select("-newPassword"); // Don't send password to club
@@ -279,7 +284,7 @@ router.get(
       console.error("Error fetching password reset history:", error);
       res.status(500).json({ error: "Failed to fetch password reset history" });
     }
-  }
+  },
 );
 
 // GET /api/clubs/:id - Get specific club details

@@ -25,7 +25,9 @@ module.exports = async function authMiddleware(req, res, next) {
       user = await Club.findById(decoded.id).select("-password");
       // Check if club account is enabled
       if (user && !user.enabled) {
-        return res.status(403).json({ error: "Club account is disabled. Contact admin." });
+        return res
+          .status(403)
+          .json({ error: "Club account is disabled. Contact admin." });
       }
     } else {
       user = await User.findById(decoded.id).select("-password");

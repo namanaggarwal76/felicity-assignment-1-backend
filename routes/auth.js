@@ -194,24 +194,34 @@ router.patch("/profile", authMiddleware, async (req, res) => {
           interests,
         },
         { new: true },
-      );
+      ).select("-password");
     } else if (userType === "club") {
-      const { name, description, category, email } = req.body; // email? usually specific route for email change? Requirements say "Contact Email" editable.
-      // Note: Login email is usually non-editable as per 10.5, but "Contact Email" might be different.
-      // The Club model share email for login and contact. Let's assume description/category/name/contactEmail.
-      // However, if email is used for login, changing it requires re-login usually. User requirement says Login email non-editable, Contact details editable.
-      // For Club, checks say "Contact Email/Number" editable. "Login email non-editable".
-      // In our schema `email` is used for login. So we might need a separate `contactEmail`.
-      // For now, let's just allow editing name, description, category.
+      const { 
+        name, 
+        description, 
+        category, 
+        contactEmail, 
+        phoneNumber, 
+        website,
+        discordWebhook,
+        socialLinks
+      } = req.body;
+      
+      const updateData = {};
+      if (name !== undefined) updateData.name = name;
+      if (description !== undefined) updateData.description = description;
+      if (category !== undefined) updateData.category = category;
+      if (contactEmail !== undefined) updateData.contactEmail = contactEmail;
+      if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
+      if (website !== undefined) updateData.website = website;
+      if (discordWebhook !== undefined) updateData.discordWebhook = discordWebhook;
+      if (socialLinks !== undefined) updateData.socialLinks = socialLinks;
+
       updatedUser = await Club.findByIdAndUpdate(
         userId,
-        {
-          name,
-          description,
-          category,
-        },
+        updateData,
         { new: true },
-      );
+      ).select("-password");
     }
 
     if (!updatedUser) {

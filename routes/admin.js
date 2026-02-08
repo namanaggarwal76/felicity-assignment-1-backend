@@ -30,12 +30,10 @@ router.post(
   checkRole(["admin"]),
   async (req, res) => {
     try {
-      // gets name, email, password from request body
-      const { name, email, password } = req.body;
-      if (!name || !email || !password) {
-        return res
-          .status(400)
-          .json({ error: "Name, email, and password are required" });
+      // gets name, email from request body (password will be auto-generated)
+      const { name, email } = req.body;
+      if (!name || !email) {
+        return res.status(400).json({ error: "Name and email are required" });
       }
       // check if same email exits in any user type, we wait for all 3 checks to complete (so await promise.all)
       const [existingUser, existingClub, existingAdmin] = await Promise.all([
@@ -49,9 +47,22 @@ router.post(
         return res.status(409).json({ error: "Email already exists" });
       }
 
+      // Generate secure password server-side
+      const generatePassword = () => {
+        const chars =
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&";
+        let password = "";
+        for (let i = 0; i < 12; i++) {
+          password += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return password;
+      };
+
+      const generatedPassword = generatePassword();
+
       // Hash password
       const saltRounds = 12;
-      const hashedPassword = await bcrypt.hash(password, saltRounds);
+      const hashedPassword = await bcrypt.hash(generatedPassword, saltRounds);
 
       // add mininal info for now, club can update later
       const club = new Club({
@@ -71,6 +82,7 @@ router.post(
           category: club.category,
           createdAt: club.createdAt,
         },
+        generatedPassword: generatedPassword, // Return plaintext password for admin to share
       });
     } catch (error) {
       console.error("Error creating club:", error);
@@ -180,7 +192,7 @@ router.get(
     try {
       const { status } = req.query; // Filter by status: pending, approved, rejected
       const query = status ? { status } : {};
-      
+
       const requests = await PasswordResetRequest.find(query)
         .populate("clubId", "name email")
         .populate("reviewedBy", "firstName lastName email")
@@ -189,9 +201,11 @@ router.get(
       res.json({ requests });
     } catch (error) {
       console.error("Error fetching password reset requests:", error);
-      res.status(500).json({ error: "Failed to fetch password reset requests" });
+      res
+        .status(500)
+        .json({ error: "Failed to fetch password reset requests" });
     }
-  }
+  },
 );
 
 // POST /api/admin/password-requests/:id/approve - approve a password reset request
@@ -205,7 +219,8 @@ router.post(
       const { adminComment } = req.body;
 
       // Find the request
-      const request = await PasswordResetRequest.findById(id).populate("clubId");
+      const request =
+        await PasswordResetRequest.findById(id).populate("clubId");
       if (!request) {
         return res.status(404).json({ error: "Request not found" });
       }
@@ -216,7 +231,8 @@ router.post(
 
       // Generate new password
       const generatePassword = () => {
-        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&";
+        const chars =
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&";
         let password = "";
         for (let i = 0; i < 12; i++) {
           password += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -250,7 +266,7 @@ router.post(
       console.error("Error approving password reset:", error);
       res.status(500).json({ error: "Failed to approve password reset" });
     }
-  }
+  },
 );
 
 // POST /api/admin/password-requests/:id/reject - reject a password reset request
@@ -263,7 +279,10 @@ router.post(
       const { id } = req.params;
       const { adminComment } = req.body;
 
-      const request = await PasswordResetRequest.findById(id).populate("clubId", "name email");
+      const request = await PasswordResetRequest.findById(id).populate(
+        "clubId",
+        "name email",
+      );
       if (!request) {
         return res.status(404).json({ error: "Request not found" });
       }
@@ -286,7 +305,7 @@ router.post(
       console.error("Error rejecting password reset:", error);
       res.status(500).json({ error: "Failed to reject password reset" });
     }
-  }
+  },
 );
 
 // GET /api/admin/password-requests/:id - Get specific password reset request with password
@@ -310,7 +329,7 @@ router.get(
       console.error("Error fetching request:", error);
       res.status(500).json({ error: "Failed to fetch request" });
     }
-  }
+  },
 );
 
 // POST /api/admin/create-admin - create a new admin (development only, need to figure out or remove later)

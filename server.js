@@ -2,9 +2,32 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const path = require("path");
+const http = require("http");
+const { Server } = require("socket.io");
 require("dotenv").config();
 
 const app = express();
+const server = http.createServer(app);
+
+// Setup Socket.io with CORS
+const io = new Server(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    credentials: true,
+  },
+});
+
+// Make io accessible in routes
+app.set("io", io);
+
+// Socket.io connection handling
+io.on("connection", (socket) => {
+  console.log("Client connected:", socket.id);
+
+  socket.on("disconnect", () => {
+    console.log("Client disconnected:", socket.id);
+  });
+});
 
 // Verify email configuration on startup
 const { verifyEmailConfig } = require("./utils/emailService");
@@ -18,15 +41,20 @@ verifyEmailConfig().catch((err) => {
 // Middleware
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL,
+    origin: process.env.FRONTEND_URL || true,
     credentials: true,
   }),
 );
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static files for uploads (payment proofs, etc.)
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+// Serve static files for uploads (payment proofs, etc.) with proper headers
+app.use("/uploads", (req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET");
+  res.header("Cross-Origin-Resource-Policy", "cross-origin");
+  next();
+}, express.static(path.join(__dirname, "uploads")));
 
 // MongoDB Connection
 mongoose
@@ -61,6 +89,7 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Socket.io ready for real-time updates`);
 });

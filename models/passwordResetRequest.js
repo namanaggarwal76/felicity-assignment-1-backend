@@ -38,8 +38,4 @@ const passwordResetRequestSchema = new mongoose.Schema(
   }
 );
 
-// Index for efficient querying
-passwordResetRequestSchema.index({ clubId: 1, status: 1 });
-passwordResetRequestSchema.index({ status: 1, createdAt: -1 });
-
 module.exports = mongoose.model("PasswordResetRequest", passwordResetRequestSchema);

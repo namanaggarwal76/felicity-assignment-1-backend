@@ -18,7 +18,7 @@ const lastNames = ['Sharma', 'Patel', 'Kumar', 'Singh', 'Reddy', 'Gupta', 'Mehta
 const colleges = ['IIIT Hyderabad', 'IIT Delhi', 'IIT Bombay', 'NIT Trichy', 'BITS Pilani', 'VIT Vellore', 'Manipal Institute', 'SRM University', 'Delhi University', 'Mumbai University'];
 
 const clubNames = ['Music Club', 'Dance Society', 'Tech Club', 'Photography Club', 'Literature Society', 'Gaming Club', 'Art Society', 'Sports Committee'];
-const clubCategories = ['music', 'dance', 'technology', 'photography', 'literature', 'gaming', 'art', 'sports'];
+const clubCategories = ['Music', 'Dance', 'Technology', 'Photography', 'Literature', 'Gaming', 'Art', 'Sports'];
 const clubDescriptions = [
   'Promoting musical talent and organizing concerts across campus',
   'Bringing together dancers of all styles and levels',
@@ -100,16 +100,27 @@ async function createUsers(count = 15) {
 
     const hashedPassword = await bcrypt.hash('user123', 10);
 
+    // Select 2-3 random interests (lowercase to match enum)
+    const numInterests = randomInt(2, 3);
+    const selectedInterests = [];
+    const availableInterests = [...clubCategories];
+    for (let j = 0; j < numInterests && availableInterests.length > 0; j++) {
+      const idx = randomInt(0, availableInterests.length - 1);
+      selectedInterests.push(availableInterests[idx]);
+      availableInterests.splice(idx, 1);
+    }
+
     const user = await User.create({
       firstName: firstNames[i % firstNames.length],
       lastName: lastNames[i % lastNames.length],
       email: email,
-      participantType: isIIIT ? 'iiitan' : 'external',
+      isIIITian: isIIIT,
       collegeName: isIIIT ? 'IIIT Hyderabad' : randomItem(colleges),
       contactNumber: `+91${randomInt(7000000000, 9999999999)}`,
       password: hashedPassword,
-      interests: [randomItem(clubCategories), randomItem(clubCategories)],
-      followedClubs: []
+      onboardingCompleted: i < 12, // First 12 users completed onboarding
+      interests: selectedInterests,
+      followedClubs: [] // Will be populated later
     });
     users.push(user);
   }
@@ -124,24 +135,28 @@ async function createClubs(count = 8) {
 
   for (let i = 0; i < count; i++) {
     const hashedPassword = await bcrypt.hash('club123', 10);
+    const clubSlug = clubNames[i].toLowerCase().replace(/\s+/g, '');
 
     const club = await Club.create({
       name: clubNames[i],
-      email: `${clubNames[i].toLowerCase().replace(/\s+/g, '')}@felicity.com`,
+      email: `${clubSlug}@felicity.com`,
       password: hashedPassword,
-      category: clubCategories[i],
+      category: clubCategories[i], // Both interests and categories now use Title Case
       description: clubDescriptions[i],
-      contactEmail: `contact.${clubNames[i].toLowerCase().replace(/\s+/g, '')}@felicity.com`,
+      contactEmail: `contact.${clubSlug}@felicity.com`,
       phoneNumber: `+91${randomInt(8000000000, 9999999999)}`,
-      website: `https://${clubNames[i].toLowerCase().replace(/\s+/g, '')}.felicity.com`,
+      website: `https://${clubSlug}.felicity.com`,
       discordWebhook: i < 3 ? `https://discord.com/api/webhooks/123456789/sample-webhook-${i}` : null,
-      establishedDate: randomPastDate(randomInt(365, 1825)),
       socialLinks: {
-        instagram: `https://instagram.com/${clubNames[i].toLowerCase().replace(/\s+/g, '')}`,
-        twitter: `https://twitter.com/${clubNames[i].toLowerCase().replace(/\s+/g, '')}`,
-        facebook: null,
-        linkedin: null
-      }
+        instagram: `https://instagram.com/${clubSlug}`,
+        twitter: `https://twitter.com/${clubSlug}`,
+        facebook: i % 2 === 0 ? `https://facebook.com/${clubSlug}` : null,
+        linkedin: i % 3 === 0 ? `https://linkedin.com/company/${clubSlug}` : null
+      },
+      followers: [], // Will be populated when users follow
+      followerCount: 0,
+      totalEvents: 0,
+      enabled: true // All clubs enabled by default
     });
     clubs.push(club);
   }

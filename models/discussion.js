@@ -12,7 +12,7 @@ const reactionSchema = new mongoose.Schema(
       required: true,
     },
   },
-  {timestamps: true},
+  { timestamps: true },
 );
 
 const discussionSchema = new mongoose.Schema(

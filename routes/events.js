@@ -5,11 +5,14 @@ const Registration = require("../models/registration");
 const Club = require("../models/club");
 const authMiddleware = require("../middleware/authMiddleware");
 const checkRole = require("../middleware/checkRole");
-const { v4: uuidv4 } = require('uuid');
-const axios = require('axios');
-const QRCode = require('qrcode');
-const { generateEncryptedQRCode, sendRegistrationEmail } = require('../utils/emailService');
-const paymentProofUpload = require('../middleware/uploadMiddleware');
+const { v4: uuidv4 } = require("uuid");
+const axios = require("axios");
+const QRCode = require("qrcode");
+const {
+  generateEncryptedQRCode,
+  sendRegistrationEmail,
+} = require("../utils/emailService");
+const paymentProofUpload = require("../middleware/uploadMiddleware");
 
 // GET /api/events/all - Get all events (Admin only)
 router.get("/all", authMiddleware, checkRole(["admin"]), async (req, res) => {
@@ -31,58 +34,71 @@ async function sendDiscordNotification(club, event) {
 
   try {
     await axios.post(club.discordWebhook, {
-      embeds: [{
-        title: `🎉 New Event: ${event.name}`,
-        description: event.description,
-        color: 0x5865F2,
-        fields: [
-          {
-            name: "📅 Event Date",
-            value: new Date(event.eventStartDate).toLocaleDateString(),
-            inline: true
+      embeds: [
+        {
+          title: `🎉 New Event: ${event.name}`,
+          description: event.description,
+          color: 0x5865f2,
+          fields: [
+            {
+              name: "📅 Event Date",
+              value: new Date(event.eventStartDate).toLocaleDateString(),
+              inline: true,
+            },
+            {
+              name: "🎫 Registration Fee",
+              value:
+                event.registrationFee > 0
+                  ? `₹${event.registrationFee}`
+                  : "Free",
+              inline: true,
+            },
+            {
+              name: "👥 Spots Available",
+              value: `${event.registrationLimit}`,
+              inline: true,
+            },
+            {
+              name: "⏰ Registration Deadline",
+              value: new Date(event.registrationDeadline).toLocaleString(),
+              inline: false,
+            },
+          ],
+          footer: {
+            text: `Event Type: ${event.eventType} | Eligibility: ${event.eligibility}`,
           },
-          {
-            name: "🎫 Registration Fee",
-            value: event.registrationFee > 0 ? `₹${event.registrationFee}` : "Free",
-            inline: true
-          },
-          {
-            name: "👥 Spots Available",
-            value: `${event.registrationLimit}`,
-            inline: true
-          },
-          {
-            name: "⏰ Registration Deadline",
-            value: new Date(event.registrationDeadline).toLocaleString(),
-            inline: false
-          }
-        ],
-        footer: {
-          text: `Event Type: ${event.eventType} | Eligibility: ${event.eligibility}`
+          timestamp: new Date().toISOString(),
         },
-        timestamp: new Date().toISOString()
-      }]
+      ],
     });
   } catch (error) {
-    console.error('Discord webhook error:', error.message);
+    console.error("Discord webhook error:", error.message);
   }
 }
 
 // GET /api/events - Get all published events (public) with filters
 router.get("/", async (req, res) => {
   try {
-    const { search, type, eligibility, startDate, endDate, organizerId, status } = req.query;
+    const {
+      search,
+      type,
+      eligibility,
+      startDate,
+      endDate,
+      organizerId,
+      status,
+    } = req.query;
 
     // Default status to published/ongoing if not specified
     const query = {};
     if (status) {
-      query.status = { $in: status.split(',') };
-      // detailed security check: if fetching drafts, ensure ownership? 
+      query.status = { $in: status.split(",") };
+      // detailed security check: if fetching drafts, ensure ownership?
       // For public API, we might want to restrict drafts.
       // But "completed" or "closed" are fine for public history.
       // Let's filter out drafts unless specific conditions (which we won't handle here for simplicity, organizer has separate route)
-      if (query.status.$in.includes('draft')) {
-        query.status.$in = query.status.$in.filter(s => s !== 'draft');
+      if (query.status.$in.includes("draft")) {
+        query.status.$in = query.status.$in.filter((s) => s !== "draft");
       }
     } else {
       query.status = { $in: ["published", "ongoing"] };
@@ -101,13 +117,15 @@ router.get("/", async (req, res) => {
 
     if (search) {
       // Search event name OR organizer name.
-      const Club = require('../models/club');
-      const clubs = await Club.find({ name: { $regex: search, $options: 'i' } });
-      const clubIds = clubs.map(c => c._id);
+      const Club = require("../models/club");
+      const clubs = await Club.find({
+        name: { $regex: search, $options: "i" },
+      });
+      const clubIds = clubs.map((c) => c._id);
 
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { organizerId: { $in: clubIds } }
+        { name: { $regex: search, $options: "i" } },
+        { organizerId: { $in: clubIds } },
       ];
     }
 
@@ -130,12 +148,14 @@ router.get("/trending", async (req, res) => {
       { $match: { createdAt: { $gte: oneDayAgo } } },
       { $group: { _id: "$eventId", count: { $sum: 1 } } },
       { $sort: { count: -1 } },
-      { $limit: 5 }
+      { $limit: 5 },
     ]);
 
-    const eventIds = trending.map(t => t._id);
-    const events = await Event.find({ _id: { $in: eventIds } })
-      .populate("organizerId", "name email category");
+    const eventIds = trending.map((t) => t._id);
+    const events = await Event.find({ _id: { $in: eventIds } }).populate(
+      "organizerId",
+      "name email category",
+    );
 
     res.json({ events });
   } catch (error) {
@@ -145,20 +165,25 @@ router.get("/trending", async (req, res) => {
 });
 
 // GET /api/events/my-registrations - Get logged-in user's registrations
-router.get("/my-registrations", authMiddleware, checkRole(["user"]), async (req, res) => {
-  try {
-    const registrations = await Registration.find({ userId: req.user._id })
-      .populate({
-        path: 'eventId',
-        populate: { path: 'organizerId', select: 'name category' }
-      })
-      .sort({ registrationDate: -1 });
-    res.json({ registrations });
-  } catch (error) {
-    console.error("Error fetching registrations:", error);
-    res.status(500).json({ error: "Failed to fetch registrations" });
-  }
-});
+router.get(
+  "/my-registrations",
+  authMiddleware,
+  checkRole(["user"]),
+  async (req, res) => {
+    try {
+      const registrations = await Registration.find({ userId: req.user._id })
+        .populate({
+          path: "eventId",
+          populate: { path: "organizerId", select: "name category" },
+        })
+        .sort({ registrationDate: -1 });
+      res.json({ registrations });
+    } catch (error) {
+      console.error("Error fetching registrations:", error);
+      res.status(500).json({ error: "Failed to fetch registrations" });
+    }
+  },
+);
 
 // GET /api/events/organizer/my-events - Get all events by logged-in organizer
 router.get(
@@ -255,22 +280,22 @@ router.get(
 
       // Fetch all registrations for this event
       const registrations = await Registration.find({ eventId: req.params.id })
-        .populate('userId', 'firstName lastName email collegeName')
+        .populate("userId", "firstName lastName email collegeName")
         .sort({ registrationDate: -1 });
 
       // Format participant data
-      const participants = registrations.map(reg => ({
+      const participants = registrations.map((reg) => ({
         _id: reg._id,
-        name: `${reg.userId?.firstName || ''} ${reg.userId?.lastName || ''}`.trim(),
-        email: reg.userId?.email || 'N/A',
-        collegeName: reg.userId?.collegeName || 'N/A',
+        name: `${reg.userId?.firstName || ""} ${reg.userId?.lastName || ""}`.trim(),
+        email: reg.userId?.email || "N/A",
+        collegeName: reg.userId?.collegeName || "N/A",
         registrationDate: reg.registrationDate,
         paymentStatus: reg.paymentStatus,
         status: reg.status,
-        teamName: reg.teamName || '-',
+        teamName: reg.teamName || "-",
         ticketId: reg.ticketId,
         formData: reg.formData,
-        merchandiseSelection: reg.merchandiseSelection
+        merchandiseSelection: reg.merchandiseSelection,
       }));
 
       res.json({ participants, count: participants.length });
@@ -349,11 +374,9 @@ router.post("/", authMiddleware, checkRole(["club"]), async (req, res) => {
     }
 
     if (startDate <= regDeadline) {
-      return res
-        .status(400)
-        .json({
-          error: "Event start date must be after registration deadline",
-        });
+      return res.status(400).json({
+        error: "Event start date must be after registration deadline",
+      });
     }
 
     if (endDate <= startDate) {
@@ -454,7 +477,7 @@ router.patch("/:id", authMiddleware, checkRole(["club"]), async (req, res) => {
       if (status) event.status = status;
 
       // Send Discord notification when publishing
-      if (oldStatus === 'draft' && status === 'published') {
+      if (oldStatus === "draft" && status === "published") {
         const club = await Club.findById(event.organizerId);
         if (club) {
           await sendDiscordNotification(club, event);
@@ -471,11 +494,9 @@ router.patch("/:id", authMiddleware, checkRole(["club"]), async (req, res) => {
         if (newDeadline > currentDeadline) {
           event.registrationDeadline = registrationDeadline;
         } else {
-          return res
-            .status(400)
-            .json({
-              error: "Can only extend registration deadline, not reduce it",
-            });
+          return res.status(400).json({
+            error: "Can only extend registration deadline, not reduce it",
+          });
         }
       }
 
@@ -484,11 +505,9 @@ router.patch("/:id", authMiddleware, checkRole(["club"]), async (req, res) => {
         if (registrationLimit >= event.registrationLimit) {
           event.registrationLimit = registrationLimit;
         } else {
-          return res
-            .status(400)
-            .json({
-              error: "Can only increase registration limit, not reduce it",
-            });
+          return res.status(400).json({
+            error: "Can only increase registration limit, not reduce it",
+          });
         }
       }
 
@@ -497,11 +516,11 @@ router.patch("/:id", authMiddleware, checkRole(["club"]), async (req, res) => {
         event.status = "closed";
         // Mark all non-scanned participants as absent
         await Registration.updateMany(
-          { eventId: event._id, attendanceStatus: 'not_checked' },
-          { 
-            attendanceStatus: 'absent',
-            attendanceTimestamp: new Date()
-          }
+          { eventId: event._id, attendanceStatus: "not_checked" },
+          {
+            attendanceStatus: "absent",
+            attendanceTimestamp: new Date(),
+          },
         );
       }
 
@@ -516,19 +535,17 @@ router.patch("/:id", authMiddleware, checkRole(["club"]), async (req, res) => {
         // Mark all non-scanned participants as absent when completing or closing
         if (status === "completed" || status === "closed") {
           await Registration.updateMany(
-            { eventId: event._id, attendanceStatus: 'not_checked' },
-            { 
-              attendanceStatus: 'absent',
-              attendanceTimestamp: new Date()
-            }
+            { eventId: event._id, attendanceStatus: "not_checked" },
+            {
+              attendanceStatus: "absent",
+              attendanceTimestamp: new Date(),
+            },
           );
         }
       } else {
-        return res
-          .status(400)
-          .json({
-            error: "Cannot edit ongoing/completed events except status",
-          });
+        return res.status(400).json({
+          error: "Cannot edit ongoing/completed events except status",
+        });
       }
     } else if (event.status === "closed") {
       return res.status(400).json({ error: "Cannot edit closed events" });
@@ -575,161 +592,252 @@ router.delete("/:id", authMiddleware, checkRole(["club"]), async (req, res) => {
 });
 
 // POST /api/events/:id/register - Register for event
-router.post("/:id/register", authMiddleware, checkRole(["user"]), async (req, res) => {
-  try {
-    const eventId = req.params.id;
-    const userId = req.user._id;
-    const { formData, merchandiseSelection, teamName } = req.body;
-
-    const event = await Event.findById(eventId);
-    if (!event) return res.status(404).json({ error: "Event not found" });
-
-    if (event.status !== 'published' && event.status !== 'ongoing') {
-      return res.status(400).json({ error: "Event is not open for registration" });
-    }
-
-    if (new Date() > new Date(event.registrationDeadline)) {
-      return res.status(400).json({ error: "Registration deadline has passed" });
-    }
-
-    if (event.totalRegistrations >= event.registrationLimit) {
-      return res.status(400).json({ error: "Registration limit reached" });
-    }
-
-    // Check already registered
-    const existing = await Registration.findOne({ userId, eventId });
-    if (existing) {
-      return res.status(409).json({ error: "Already registered for this event" });
-    }
-
-    // Merchandise specific checks
-    let variant = null;
-    if (event.eventType === 'merchandise') {
-      if (!merchandiseSelection || !merchandiseSelection.variantId) {
-        return res.status(400).json({ error: "Please select a variant" });
-      }
-      // Check stock
-      variant = event.merchandiseDetails.variants.find(v => v.variantId === merchandiseSelection.variantId);
-      if (!variant) return res.status(400).json({ error: "Invalid variant" });
-      if (variant.stockQuantity < (merchandiseSelection.quantity || 1)) {
-        return res.status(400).json({ error: "Out of stock" });
-      }
-
-      // DON'T decrement stock here for merchandise with payment
-      // Stock is decremented only after payment approval
-    }
-
-    const ticketId = uuidv4();
-
-    // Determine payment status and approval workflow
-    let paymentStatus = 'free';
-    let paymentApprovalStatus = 'not_required';
-
-    // For merchandise events with price > 0, require payment approval
-    if (event.eventType === 'merchandise' && variant && variant.price > 0) {
-      paymentStatus = 'pending';
-      paymentApprovalStatus = 'pending'; // Requires payment proof upload and approval
-    } else if (event.registrationFee > 0) {
-      // For normal events with fees (simplified - mark as completed)
-      paymentStatus = 'completed';
-    }
-
-    const registration = new Registration({
-      userId,
-      eventId,
-      ticketId,
-      status: 'registered',
-      paymentStatus,
-      paymentApprovalStatus,
-      formData: event.eventType === 'normal' ? formData : undefined,
-      merchandiseSelection: event.eventType === 'merchandise' ? merchandiseSelection : undefined,
-      teamName,
-      attendanceStatus: 'not_checked'
-    });
-
-    await registration.save();
-
-    // Generate encrypted QR code
-    const { qrCodeBuffer, encryptedData, iv } = await generateEncryptedQRCode({
-      ticketId,
-      userId: userId.toString(),
-      eventId: eventId.toString(),
-      eventName: event.name,
-      userName: `${req.user.firstName} ${req.user.lastName}`,
-      registrationDate: registration.registrationDate
-    });
-
-    // Save encrypted QR data to registration
-    registration.qrCodeEncrypted = encryptedData;
-    registration.qrCodeIV = iv;
-    await registration.save();
-
-    // Send registration confirmation email with QR code
+router.post(
+  "/:id/register",
+  authMiddleware,
+  checkRole(["user"]),
+  async (req, res) => {
     try {
-      await sendRegistrationEmail({
-        to: req.user.email,
-        userName: `${req.user.firstName} ${req.user.lastName}`,
-        eventName: event.name,
-        eventDate: event.eventStartDate,
-        eventLocation: event.location,
+      const eventId = req.params.id;
+      const userId = req.user._id;
+      const { formData, merchandiseSelection, teamName } = req.body;
+
+      const event = await Event.findById(eventId);
+      if (!event) return res.status(404).json({ error: "Event not found" });
+
+      if (event.status !== "published" && event.status !== "ongoing") {
+        return res
+          .status(400)
+          .json({ error: "Event is not open for registration" });
+      }
+
+      if (new Date() > new Date(event.registrationDeadline)) {
+        return res
+          .status(400)
+          .json({ error: "Registration deadline has passed" });
+      }
+
+      if (event.totalRegistrations >= event.registrationLimit) {
+        return res.status(400).json({ error: "Registration limit reached" });
+      }
+
+      // Check already registered
+      const existing = await Registration.findOne({ userId, eventId });
+      if (existing) {
+        return res
+          .status(409)
+          .json({ error: "Already registered for this event" });
+      }
+
+      // Merchandise specific checks
+      let variant = null;
+      if (event.eventType === "merchandise") {
+        if (!merchandiseSelection || !merchandiseSelection.variantId) {
+          return res.status(400).json({ error: "Please select a variant" });
+        }
+        // Check stock
+        variant = event.merchandiseDetails.variants.find(
+          (v) => v.variantId === merchandiseSelection.variantId,
+        );
+        if (!variant) return res.status(400).json({ error: "Invalid variant" });
+        if (variant.stockQuantity < (merchandiseSelection.quantity || 1)) {
+          return res.status(400).json({ error: "Out of stock" });
+        }
+
+        // DON'T decrement stock here for merchandise with payment
+        // Stock is decremented only after payment approval
+      }
+
+      // Determine payment status and approval workflow
+      let paymentStatus = "free";
+      let paymentApprovalStatus = "not_required";
+      let registrationApprovalStatus = "not_required";
+      let registrationStatus = "registered";
+
+      // For any paid event (merchandise with price OR normal event with registration fee)
+      const isPaidEvent = 
+        (event.eventType === "merchandise" && variant && variant.price > 0) ||
+        (event.eventType === "normal" && event.registrationFee > 0);
+
+      if (isPaidEvent) {
+        paymentStatus = "pending";
+        paymentApprovalStatus = "pending"; // Requires payment proof upload and approval
+        registrationStatus = "pending_approval"; // All paid events require payment approval
+      }
+
+      // Check if event requires manual registration approval (in addition to payment)
+      if (event.requiresApproval) {
+        registrationApprovalStatus = "pending";
+        if (!isPaidEvent) {
+          // Only set pending_approval if not already set by payment requirement
+          registrationStatus = "pending_approval";
+        }
+      }
+
+      // Generate ticket ID only for free/approved events
+      // For paid events, ticket ID will be generated after payment approval
+      let ticketId = null;
+      if (!isPaidEvent && registrationApprovalStatus === "not_required") {
+        ticketId = uuidv4();
+      }
+
+      const registration = new Registration({
+        userId,
+        eventId,
         ticketId,
-        qrCodeBuffer,
-        registrationFee: event.registrationFee || 0
+        status: registrationStatus,
+        paymentStatus,
+        paymentApprovalStatus,
+        registrationApprovalStatus,
+        formData: event.eventType === "normal" ? formData : undefined,
+        merchandiseSelection:
+          event.eventType === "merchandise" ? merchandiseSelection : undefined,
+        teamName,
+        attendanceStatus: "not_checked",
       });
-      console.log(`Registration email sent to ${req.user.email}`);
-    } catch (emailError) {
-      console.error('Failed to send registration email:', emailError);
-      // Don't fail the registration if email fails
-    }
 
-    // Update event stats for normal events and free merchandise
-    if (event.eventType === 'normal' || (event.eventType === 'merchandise' && (!variant || variant.price === 0))) {
-      event.totalRegistrations += 1;
-      if (event.registrationFee > 0) {
-        event.totalRevenue += event.registrationFee;
+      await registration.save();
+
+      // Only generate QR code and send email for approved/free events without manual approval
+      // For paid events or events requiring approval, this will be done after approval
+      if (paymentApprovalStatus === "not_required" && registrationApprovalStatus === "not_required") {
+        // Generate encrypted QR code
+        const { qrCodeBuffer, encryptedData, iv } = await generateEncryptedQRCode(
+          {
+            ticketId,
+            userId: userId.toString(),
+            eventId: eventId.toString(),
+            eventName: event.name,
+            userName: `${req.user.firstName} ${req.user.lastName}`,
+            registrationDate: registration.registrationDate,
+          },
+        );
+
+        // Save encrypted QR data to registration
+        registration.qrCodeEncrypted = encryptedData;
+        registration.qrCodeIV = iv;
+        await registration.save();
+
+        // Send registration confirmation email with QR code
+        try {
+          await sendRegistrationEmail({
+            to: req.user.email,
+            userName: `${req.user.firstName} ${req.user.lastName}`,
+            eventName: event.name,
+            eventDate: event.eventStartDate,
+            eventLocation: event.location,
+            ticketId,
+            qrCodeBuffer,
+            registrationFee: event.registrationFee || 0,
+          });
+          console.log(`Registration email sent to ${req.user.email}`);
+        } catch (emailError) {
+          console.error("Failed to send registration email:", emailError);
+          // Don't fail the registration if email fails
+        }
       }
-      // For free merchandise, decrement stock immediately
-      if (event.eventType === 'merchandise' && variant) {
-        variant.stockQuantity -= (merchandiseSelection.quantity || 1);
+
+      // Update event stats only for auto-approved free events
+      // For paid events or events requiring approval, stats are updated after approval
+      if (paymentApprovalStatus === "not_required" && registrationApprovalStatus === "not_required") {
+        event.totalRegistrations += 1;
+        // For free merchandise, decrement stock immediately
+        if (event.eventType === "merchandise" && variant) {
+          variant.stockQuantity -= merchandiseSelection.quantity || 1;
+        }
+        await event.save();
+
+        // Emit socket event for real-time dashboard updates
+        const io = req.app.get("io");
+        if (io) {
+          // Notify the user about successful registration
+          io.emit("registration:created", {
+            userId: userId.toString(),
+            eventId: eventId.toString(),
+            registrationId: registration._id,
+            eventName: event.name,
+          });
+          // Notify club about new registration
+          io.emit("registration:new", {
+            clubId: event.organizerId.toString(),
+            eventId: eventId.toString(),
+            registrationId: registration._id,
+          });
+          // Update event stats globally
+          io.emit("event:updated", { eventId: eventId.toString() });
+        }
       }
-      await event.save();
+
+      // For paid events requiring approval, emit event for pending payment
+      if (paymentApprovalStatus === "pending") {
+        const io = req.app.get("io");
+        if (io) {
+          // Notify user about pending payment status
+          io.emit("registration:pending_payment", {
+            userId: userId.toString(),
+            eventId: eventId.toString(),
+            registrationId: registration._id,
+            eventName: event.name,
+          });
+        }
+      }
+
+      // For events requiring manual approval, emit event
+      if (registrationApprovalStatus === "pending") {
+        const io = req.app.get("io");
+        if (io) {
+          // Notify club about pending registration approval
+          io.emit("registration:pending_approval", {
+            clubId: event.organizerId.toString(),
+            eventId: eventId.toString(),
+            registrationId: registration._id,
+            userId: userId.toString(),
+          });
+        }
+      }
+
+      // Response message
+      const requiresPaymentProof = paymentApprovalStatus === "pending";
+      const requiresApproval = registrationApprovalStatus === "pending";
+      
+      let message = "Registration successful!";
+      if (requiresApproval && requiresPaymentProof) {
+        message = "Registration received! Awaiting organizer approval and payment verification.";
+      } else if (requiresApproval) {
+        message = "Registration received! Awaiting organizer approval.";
+      } else if (requiresPaymentProof) {
+        message = "Registration received! Please upload payment proof.";
+      }
+
+      res.status(201).json({
+        message,
+        ticketId,
+        requiresPaymentProof,
+        requiresApproval,
+        registrationId: registration._id,
+      });
+    } catch (error) {
+      console.error("Registration error:", error);
+      res.status(500).json({ error: error.message || "Registration failed" });
     }
-    // For paid merchandise, stats are updated only after payment approval
-
-    // Response message
-    const requiresPaymentProof = paymentApprovalStatus === 'pending';
-    res.status(201).json({
-      message: requiresPaymentProof
-        ? "Registration received! Please upload payment proof."
-        : "Registration successful!",
-      ticketId,
-      requiresPaymentProof,
-      registrationId: registration._id
-    });
-
-  } catch (error) {
-    console.error("Registration error:", error);
-    res.status(500).json({ error: error.message || "Registration failed" });
-  }
-});
-
-// ===============================================
-// PAYMENT APPROVAL WORKFLOW ENDPOINTS (13.1.1)
-// ===============================================
+  },
+);
 
 // POST /api/events/:id/upload-payment-proof - Upload payment proof image
 router.post(
   "/:id/upload-payment-proof",
   authMiddleware,
   checkRole(["user"]),
-  paymentProofUpload.single('paymentProof'),
+  paymentProofUpload.single("paymentProof"),
   async (req, res) => {
     try {
       const eventId = req.params.id;
       const userId = req.user._id;
 
       if (!req.file) {
-        return res.status(400).json({ error: "Payment proof image is required" });
+        return res
+          .status(400)
+          .json({ error: "Payment proof image is required" });
       }
 
       const registration = await Registration.findOne({ userId, eventId });
@@ -737,8 +845,10 @@ router.post(
         return res.status(404).json({ error: "Registration not found" });
       }
 
-      if (registration.paymentApprovalStatus !== 'pending') {
-        return res.status(400).json({ error: "Payment proof not required or already submitted" });
+      if (registration.paymentApprovalStatus !== "pending") {
+        return res
+          .status(400)
+          .json({ error: "Payment proof not required or already submitted" });
       }
 
       // Save the file path
@@ -747,13 +857,13 @@ router.post(
 
       res.json({
         message: "Payment proof uploaded successfully. Awaiting approval.",
-        imagePath: registration.paymentProofImage
+        imagePath: registration.paymentProofImage,
       });
     } catch (error) {
       console.error("Payment proof upload error:", error);
       res.status(500).json({ error: "Failed to upload payment proof" });
     }
-  }
+  },
 );
 
 // GET /api/events/:id/pending-payments - Get pending payment approvals (Organizer only)
@@ -774,43 +884,43 @@ router.get(
 
       const pendingPayments = await Registration.find({
         eventId: req.params.id,
-        paymentApprovalStatus: { $in: ['pending'] }
+        paymentApprovalStatus: { $in: ["pending"] },
       })
-        .populate('userId', 'firstName lastName email collegeName')
+        .populate("userId", "firstName lastName email collegeName")
         .sort({ createdAt: -1 });
 
       // Also get recently processed for reference
       const recentlyProcessed = await Registration.find({
         eventId: req.params.id,
-        paymentApprovalStatus: { $in: ['approved', 'rejected'] }
+        paymentApprovalStatus: { $in: ["approved", "rejected"] },
       })
-        .populate('userId', 'firstName lastName email')
+        .populate("userId", "firstName lastName email")
         .sort({ paymentApprovalDate: -1 })
         .limit(20);
 
       res.json({
-        pending: pendingPayments.map(p => ({
+        pending: pendingPayments.map((p) => ({
           _id: p._id,
           ticketId: p.ticketId,
           user: p.userId,
           merchandiseSelection: p.merchandiseSelection,
           paymentProofImage: p.paymentProofImage,
-          createdAt: p.createdAt
+          createdAt: p.createdAt,
         })),
-        recentlyProcessed: recentlyProcessed.map(p => ({
+        recentlyProcessed: recentlyProcessed.map((p) => ({
           _id: p._id,
           ticketId: p.ticketId,
           user: p.userId,
           status: p.paymentApprovalStatus,
           processedAt: p.paymentApprovalDate,
-          rejectionReason: p.paymentRejectionReason
-        }))
+          rejectionReason: p.paymentRejectionReason,
+        })),
       });
     } catch (error) {
       console.error("Error fetching pending payments:", error);
       res.status(500).json({ error: "Failed to fetch pending payments" });
     }
-  }
+  },
 );
 
 // POST /api/events/:eventId/approve-payment/:registrationId - Approve payment
@@ -836,7 +946,7 @@ router.post(
         return res.status(404).json({ error: "Registration not found" });
       }
 
-      if (registration.paymentApprovalStatus !== 'pending') {
+      if (registration.paymentApprovalStatus !== "pending") {
         return res.status(400).json({ error: "Payment already processed" });
       }
 
@@ -845,51 +955,128 @@ router.post(
       }
 
       // Approve the payment
-      registration.paymentApprovalStatus = 'approved';
+      registration.paymentApprovalStatus = "approved";
       registration.paymentApprovalDate = new Date();
       registration.paymentApprovedBy = req.user._id;
-      registration.paymentStatus = 'completed';
+      registration.paymentStatus = "completed";
+      
+      // Update registration status to registered now that payment is approved
+      // Unless it still requires manual registration approval
+      if (registration.registrationApprovalStatus !== "pending") {
+        registration.status = "registered";
+      }
+
+      // Generate ticket ID now for paid events (if not already generated)
+      if (!registration.ticketId) {
+        registration.ticketId = uuidv4();
+      }
+
+      // Populate user data for email
+      await registration.populate("userId", "firstName lastName email");
+
+      // Generate encrypted QR code now that payment is approved
+      const { qrCodeBuffer, encryptedData, iv } = await generateEncryptedQRCode({
+        ticketId: registration.ticketId,
+        userId: registration.userId._id.toString(),
+        eventId: eventId.toString(),
+        eventName: event.name,
+        userName: `${registration.userId.firstName} ${registration.userId.lastName}`,
+        registrationDate: registration.registrationDate,
+      });
+
+      // Save encrypted QR data to registration
+      registration.qrCodeEncrypted = encryptedData;
+      registration.qrCodeIV = iv;
       await registration.save();
 
-      // Now decrement stock and update event stats
+      // Calculate the amount paid
+      let paidAmount = event.registrationFee || 0;
       if (registration.merchandiseSelection && registration.merchandiseSelection.variantId) {
         const variant = event.merchandiseDetails.variants.find(
-          v => v.variantId === registration.merchandiseSelection.variantId
+          (v) => v.variantId === registration.merchandiseSelection.variantId,
         );
         if (variant) {
-          variant.stockQuantity -= (registration.merchandiseSelection.quantity || 1);
-          event.totalRevenue += (variant.price * (registration.merchandiseSelection.quantity || 1));
+          paidAmount = variant.price * (registration.merchandiseSelection.quantity || 1);
         }
+      }
+
+      // Send confirmation email with QR code
+      try {
+        await sendRegistrationEmail({
+          to: registration.userId.email,
+          userName: `${registration.userId.firstName} ${registration.userId.lastName}`,
+          eventName: event.name,
+          eventDate: event.eventStartDate,
+          eventLocation: event.location,
+          ticketId: registration.ticketId,
+          qrCodeBuffer,
+          registrationFee: paidAmount,
+        });
+        console.log(`Payment approved confirmation email sent to ${registration.userId.email}`);
+      } catch (emailError) {
+        console.error("Failed to send payment approval email:", emailError);
+        // Don't fail the approval if email fails
+      }
+
+      // Now decrement stock and update event stats
+      if (
+        registration.merchandiseSelection &&
+        registration.merchandiseSelection.variantId
+      ) {
+        const variant = event.merchandiseDetails.variants.find(
+          (v) => v.variantId === registration.merchandiseSelection.variantId,
+        );
+        if (variant) {
+          variant.stockQuantity -=
+            registration.merchandiseSelection.quantity || 1;
+          event.totalRevenue += paidAmount;
+        }
+      } else if (event.registrationFee > 0) {
+        // For normal paid events
+        event.totalRevenue += event.registrationFee;
       }
       event.totalRegistrations += 1;
       await event.save();
 
       // Emit Socket.io event for real-time updates
-      const io = req.app.get('io');
+      const io = req.app.get("io");
       if (io) {
-        io.emit('payment:approved', {
+        // Notify user about payment approval
+        io.emit("payment:approved", {
           eventId,
           registrationId: registration._id,
-          userId: registration.userId
+          userId: registration.userId._id.toString(),
         });
-        io.emit('event:updated', { eventId });
+        // Notify about new confirmed registration (now that payment is approved)
+        io.emit("registration:created", {
+          userId: registration.userId._id.toString(),
+          eventId: eventId.toString(),
+          registrationId: registration._id,
+          eventName: event.name,
+        });
+        // Notify club about confirmed registration
+        io.emit("registration:new", {
+          clubId: event.organizerId.toString(),
+          eventId: eventId.toString(),
+          registrationId: registration._id,
+        });
+        // Update event stats globally
+        io.emit("event:updated", { eventId: eventId.toString() });
       }
-
-      // TODO: Send confirmation email with ticket
 
       res.json({
         message: "Payment approved successfully",
         registration: {
           _id: registration._id,
           ticketId: registration.ticketId,
-          status: registration.paymentApprovalStatus
-        }
+          status: registration.paymentApprovalStatus,
+        },
       });
     } catch (error) {
       console.error("Payment approval error:", error);
       res.status(500).json({ error: "Failed to approve payment" });
     }
-  }
+  },
 );
 
 // POST /api/events/:eventId/reject-payment/:registrationId - Reject payment
@@ -916,27 +1103,28 @@ router.post(
         return res.status(404).json({ error: "Registration not found" });
       }
 
-      if (registration.paymentApprovalStatus !== 'pending') {
+      if (registration.paymentApprovalStatus !== "pending") {
         return res.status(400).json({ error: "Payment already processed" });
       }
 
       // Reject the payment
-      registration.paymentApprovalStatus = 'rejected';
+      registration.paymentApprovalStatus = "rejected";
       registration.paymentApprovalDate = new Date();
       registration.paymentApprovedBy = req.user._id;
-      registration.paymentRejectionReason = reason || 'Payment rejected by organizer';
+      registration.paymentRejectionReason =
+        reason || "Payment rejected by organizer";
       await registration.save();
 
       // Emit Socket.io event for real-time updates
-      const io = req.app.get('io');
+      const io = req.app.get("io");
       if (io) {
-        io.emit('payment:rejected', {
+        io.emit("payment:rejected", {
           eventId,
           registrationId: registration._id,
           userId: registration.userId,
-          reason: registration.paymentRejectionReason
+          reason: registration.paymentRejectionReason,
         });
-        io.emit('event:updated', { eventId });
+        io.emit("event:updated", { eventId });
       }
 
       res.json({
@@ -944,19 +1132,252 @@ router.post(
         registration: {
           _id: registration._id,
           ticketId: registration.ticketId,
-          status: registration.paymentApprovalStatus
-        }
+          status: registration.paymentApprovalStatus,
+        },
       });
     } catch (error) {
       console.error("Payment rejection error:", error);
       res.status(500).json({ error: "Failed to reject payment" });
     }
-  }
+  },
 );
 
-// ===============================================
-// QR SCANNER & ATTENDANCE TRACKING (13.1.2)
-// ===============================================
+// GET /api/events/:id/pending-registrations - Get pending registration approvals (Organizer only)
+router.get(
+  "/:id/pending-registrations",
+  authMiddleware,
+  checkRole(["club"]),
+  async (req, res) => {
+    try {
+      const event = await Event.findById(req.params.id);
+      if (!event) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      if (event.organizerId.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ error: "Unauthorized access" });
+      }
+
+      const pendingRegistrations = await Registration.find({
+        eventId: req.params.id,
+        registrationApprovalStatus: "pending",
+      })
+        .populate("userId", "firstName lastName email collegeName contactNumber")
+        .sort({ createdAt: -1 });
+
+      // Also get recently processed for reference
+      const recentlyProcessed = await Registration.find({
+        eventId: req.params.id,
+        registrationApprovalStatus: { $in: ["approved", "rejected"] },
+      })
+        .populate("userId", "firstName lastName email")
+        .sort({ registrationApprovalDate: -1 })
+        .limit(20);
+
+      res.json({
+        pending: pendingRegistrations.map((r) => ({
+          _id: r._id,
+          ticketId: r.ticketId,
+          user: r.userId,
+          formData: r.formData,
+          merchandiseSelection: r.merchandiseSelection,
+          teamName: r.teamName,
+          paymentStatus: r.paymentStatus,
+          createdAt: r.createdAt,
+        })),
+        recentlyProcessed: recentlyProcessed.map((r) => ({
+          _id: r._id,
+          ticketId: r.ticketId,
+          user: r.userId,
+          status: r.registrationApprovalStatus,
+          processedAt: r.registrationApprovalDate,
+          rejectionReason: r.registrationRejectionReason,
+        })),
+      });
+    } catch (error) {
+      console.error("Error fetching pending registrations:", error);
+      res.status(500).json({ error: "Failed to fetch pending registrations" });
+    }
+  },
+);
+
+// POST /api/events/:eventId/approve-registration/:registrationId - Approve registration
+router.post(
+  "/:eventId/approve-registration/:registrationId",
+  authMiddleware,
+  checkRole(["club"]),
+  async (req, res) => {
+    try {
+      const { eventId, registrationId } = req.params;
+
+      const event = await Event.findById(eventId);
+      if (!event) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      if (event.organizerId.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ error: "Unauthorized access" });
+      }
+
+      const registration = await Registration.findById(registrationId);
+      if (!registration || registration.eventId.toString() !== eventId) {
+        return res.status(404).json({ error: "Registration not found" });
+      }
+
+      if (registration.registrationApprovalStatus !== "pending") {
+        return res.status(400).json({ error: "Registration already processed" });
+      }
+
+      // Approve the registration
+      registration.registrationApprovalStatus = "approved";
+      registration.status = "registered";
+      registration.registrationApprovalDate = new Date();
+      registration.registrationApprovedBy = req.user._id;
+
+      // Generate ticket ID now if not already generated (for free events requiring approval)
+      if (!registration.ticketId) {
+        registration.ticketId = uuidv4();
+      }
+
+      // Populate user data for email
+      await registration.populate("userId", "firstName lastName email");
+
+      // If payment is not required or already completed, generate QR and send email
+      // Only if QR code hasn't been generated yet (to avoid duplicate generation)
+      if (registration.paymentApprovalStatus !== "pending" && !registration.qrCodeEncrypted) {
+        // Generate encrypted QR code now that registration is approved
+        const { qrCodeBuffer, encryptedData, iv } = await generateEncryptedQRCode({
+          ticketId: registration.ticketId,
+          userId: registration.userId._id.toString(),
+          eventId: eventId.toString(),
+          eventName: event.name,
+          userName: `${registration.userId.firstName} ${registration.userId.lastName}`,
+          registrationDate: registration.registrationDate,
+        });
+
+        // Save encrypted QR data to registration
+        registration.qrCodeEncrypted = encryptedData;
+        registration.qrCodeIV = iv;
+        await registration.save();
+
+        // Send confirmation email with QR code
+        try {
+          await sendRegistrationEmail({
+            to: registration.userId.email,
+            userName: `${registration.userId.firstName} ${registration.userId.lastName}`,
+            eventName: event.name,
+            eventDate: event.eventStartDate,
+            eventLocation: event.location,
+            ticketId: registration.ticketId,
+            qrCodeBuffer,
+            registrationFee: event.registrationFee || 0,
+          });
+          console.log(`Registration approved email sent to ${registration.userId.email}`);
+        } catch (emailError) {
+          console.error("Failed to send registration approval email:", emailError);
+        }
+
+        // Update event stats if payment is not required
+        if (registration.paymentApprovalStatus === "not_required") {
+          event.totalRegistrations += 1;
+          if (event.registrationFee > 0) {
+            event.totalRevenue += event.registrationFee;
+          }
+          await event.save();
+        }
+      } else {
+        await registration.save();
+      }
+
+      // Emit Socket.io event for real-time updates
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("registration:approved", {
+          eventId,
+          registrationId: registration._id,
+          userId: registration.userId._id.toString(),
+        });
+        io.emit("event:updated", { eventId: eventId.toString() });
+      }
+
+      res.json({
+        message: "Registration approved successfully",
+        registration: {
+          _id: registration._id,
+          ticketId: registration.ticketId,
+          status: registration.registrationApprovalStatus,
+        },
+      });
+    } catch (error) {
+      console.error("Registration approval error:", error);
+      res.status(500).json({ error: "Failed to approve registration" });
+    }
+  },
+);
+
+// POST /api/events/:eventId/reject-registration/:registrationId - Reject registration
+router.post(
+  "/:eventId/reject-registration/:registrationId",
+  authMiddleware,
+  checkRole(["club"]),
+  async (req, res) => {
+    try {
+      const { eventId, registrationId } = req.params;
+      const { reason } = req.body;
+
+      const event = await Event.findById(eventId);
+      if (!event) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      if (event.organizerId.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ error: "Unauthorized access" });
+      }
+
+      const registration = await Registration.findById(registrationId);
+      if (!registration || registration.eventId.toString() !== eventId) {
+        return res.status(404).json({ error: "Registration not found" });
+      }
+
+      if (registration.registrationApprovalStatus !== "pending") {
+        return res.status(400).json({ error: "Registration already processed" });
+      }
+
+      // Reject the registration
+      registration.registrationApprovalStatus = "rejected";
+      registration.status = "rejected";
+      registration.registrationApprovalDate = new Date();
+      registration.registrationApprovedBy = req.user._id;
+      registration.registrationRejectionReason =
+        reason || "Registration rejected by organizer";
+      await registration.save();
+
+      // Emit Socket.io event for real-time updates
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("registration:rejected", {
+          eventId,
+          registrationId: registration._id,
+          userId: registration.userId.toString(),
+          reason: registration.registrationRejectionReason,
+        });
+        io.emit("event:updated", { eventId });
+      }
+
+      res.json({
+        message: "Registration rejected",
+        registration: {
+          _id: registration._id,
+          ticketId: registration.ticketId,
+          status: registration.registrationApprovalStatus,
+        },
+      });
+    } catch (error) {
+      console.error("Registration rejection error:", error);
+      res.status(500).json({ error: "Failed to reject registration" });
+    }
+  },
+);
 
 // GET /api/events/:eventId/ticket/:registrationId/qr - Generate QR code for ticket
 router.get(
@@ -967,8 +1388,8 @@ router.get(
       const { eventId, registrationId } = req.params;
 
       const registration = await Registration.findById(registrationId)
-        .populate('userId', 'firstName lastName email')
-        .populate('eventId', 'name eventStartDate');
+        .populate("userId", "firstName lastName email")
+        .populate("eventId", "name eventStartDate");
 
       if (!registration) {
         return res.status(404).json({ error: "Registration not found" });
@@ -976,19 +1397,25 @@ router.get(
 
       // Only allow ticket owner or organizer to access
       const event = await Event.findById(eventId);
-      const isOwner = registration.userId._id.toString() === req.user._id?.toString();
-      const isOrganizer = event?.organizerId.toString() === req.user._id?.toString();
+      const isOwner =
+        registration.userId._id.toString() === req.user._id?.toString();
+      const isOrganizer =
+        event?.organizerId.toString() === req.user._id?.toString();
 
       if (!isOwner && !isOrganizer) {
         return res.status(403).json({ error: "Unauthorized access" });
       }
 
       // Check if payment is approved for merchandise events
-      if (registration.paymentApprovalStatus === 'pending') {
-        return res.status(400).json({ error: "QR not available - payment pending approval" });
+      if (registration.paymentApprovalStatus === "pending") {
+        return res
+          .status(400)
+          .json({ error: "QR not available - payment pending approval" });
       }
-      if (registration.paymentApprovalStatus === 'rejected') {
-        return res.status(400).json({ error: "QR not available - payment was rejected" });
+      if (registration.paymentApprovalStatus === "rejected") {
+        return res
+          .status(400)
+          .json({ error: "QR not available - payment was rejected" });
       }
 
       // Generate QR code data
@@ -997,14 +1424,14 @@ router.get(
         eventId: eventId,
         registrationId: registrationId,
         userId: registration.userId._id,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       // Generate QR code as data URL
       const qrCodeDataUrl = await QRCode.toDataURL(qrData, {
         width: 300,
         margin: 2,
-        color: { dark: '#000000', light: '#ffffff' }
+        color: { dark: "#000000", light: "#ffffff" },
       });
 
       res.json({
@@ -1013,14 +1440,14 @@ router.get(
           ticketId: registration.ticketId,
           eventName: registration.eventId.name,
           participantName: `${registration.userId.firstName} ${registration.userId.lastName}`,
-          eventDate: registration.eventId.eventStartDate
-        }
+          eventDate: registration.eventId.eventStartDate,
+        },
       });
     } catch (error) {
       console.error("QR generation error:", error);
       res.status(500).json({ error: "Failed to generate QR code" });
     }
-  }
+  },
 );
 
 // POST /api/events/:eventId/scan-ticket - Scan QR and mark attendance
@@ -1042,6 +1469,14 @@ router.post(
         return res.status(403).json({ error: "Unauthorized access" });
       }
 
+      // Check if event is ongoing
+      if (event.status !== "ongoing") {
+        return res.status(400).json({ 
+          error: `Cannot mark attendance - Event is ${event.status}. Event must be marked as "ongoing" to scan tickets.`,
+          currentStatus: event.status
+        });
+      }
+
       // Parse QR data if provided
       let parsedQR = null;
       if (qrData) {
@@ -1059,29 +1494,76 @@ router.post(
 
       const registration = await Registration.findOne({
         ticketId: searchTicketId,
-        eventId: eventId
-      }).populate('userId', 'firstName lastName email collegeName');
+        eventId: eventId,
+      }).populate("userId", "firstName lastName email collegeName");
 
       if (!registration) {
-        return res.status(404).json({ error: "Ticket not found for this event" });
+        return res
+          .status(404)
+          .json({ error: "Ticket not found for this event" });
       }
 
-      // Check if payment is approved for merchandise events
-      if (registration.paymentApprovalStatus === 'pending') {
-        return res.status(400).json({ error: "Cannot mark attendance - payment pending" });
+      // Check if registration status is valid for attendance
+      if (registration.status === "cancelled") {
+        return res
+          .status(400)
+          .json({ error: "Cannot mark attendance - registration is cancelled" });
       }
-      if (registration.paymentApprovalStatus === 'rejected') {
-        return res.status(400).json({ error: "Cannot mark attendance - payment rejected" });
+      if (registration.status === "rejected") {
+        return res
+          .status(400)
+          .json({ error: "Cannot mark attendance - registration was rejected" });
+      }
+      if (registration.status === "pending_approval") {
+        return res
+          .status(400)
+          .json({ error: "Cannot mark attendance - registration approval pending" });
+      }
+      if (registration.status !== "registered" && registration.status !== "attended") {
+        return res
+          .status(400)
+          .json({ error: `Cannot mark attendance - invalid registration status: ${registration.status}` });
+      }
+
+      // Check if registration approval is complete
+      if (registration.registrationApprovalStatus === "pending") {
+        return res
+          .status(400)
+          .json({ error: "Cannot mark attendance - registration approval pending" });
+      }
+      if (registration.registrationApprovalStatus === "rejected") {
+        return res
+          .status(400)
+          .json({ error: "Cannot mark attendance - registration was rejected" });
+      }
+
+      // Check if payment is approved for paid events
+      if (registration.paymentApprovalStatus === "pending") {
+        return res
+          .status(400)
+          .json({ error: "Cannot mark attendance - payment approval pending" });
+      }
+      if (registration.paymentApprovalStatus === "rejected") {
+        return res
+          .status(400)
+          .json({ error: "Cannot mark attendance - payment was rejected" });
+      }
+
+      // Check if QR code exists (should be generated after approval)
+      if (!registration.qrCodeEncrypted) {
+        return res
+          .status(400)
+          .json({ error: "Cannot mark attendance - ticket QR code not generated" });
       }
 
       // Check for duplicate scan
-      if (registration.attendanceStatus === 'present') {
+      if (registration.attendanceStatus === "present") {
         // Log the duplicate scan attempt
         registration.scanHistory.push({
           timestamp: new Date(),
-          action: 'duplicate_rejected',
+          action: "duplicate_rejected",
           performedBy: req.user._id,
-          notes: 'Duplicate scan attempt rejected'
+          notes: "Duplicate scan attempt rejected",
         });
         await registration.save();
 
@@ -1090,22 +1572,22 @@ router.post(
           alreadyMarkedAt: registration.attendanceTimestamp,
           participant: {
             name: `${registration.userId.firstName} ${registration.userId.lastName}`,
-            email: registration.userId.email
-          }
+            email: registration.userId.email,
+          },
         });
       }
 
       // Mark attendance
-      registration.attendanceStatus = 'present';
+      registration.attendanceStatus = "present";
       registration.attendanceTimestamp = new Date();
       registration.attendanceMarkedBy = req.user._id;
-      registration.status = 'attended';
+      registration.status = "attended";
 
       // Add to scan history
       registration.scanHistory.push({
         timestamp: new Date(),
-        action: 'scanned',
-        performedBy: req.user._id
+        action: "scanned",
+        performedBy: req.user._id,
       });
 
       await registration.save();
@@ -1122,14 +1604,14 @@ router.post(
           email: registration.userId.email,
           collegeName: registration.userId.collegeName,
           ticketId: registration.ticketId,
-          markedAt: registration.attendanceTimestamp
-        }
+          markedAt: registration.attendanceTimestamp,
+        },
       });
     } catch (error) {
       console.error("Ticket scan error:", error);
       res.status(500).json({ error: "Failed to process ticket scan" });
     }
-  }
+  },
 );
 
 // POST /api/events/:eventId/manual-attendance/:registrationId - Manual attendance override
@@ -1142,12 +1624,18 @@ router.post(
       const { eventId, registrationId } = req.params;
       const { status, reason } = req.body;
 
-      if (!['present', 'absent'].includes(status)) {
-        return res.status(400).json({ error: "Status must be 'present' or 'absent'" });
+      if (!["present", "absent"].includes(status)) {
+        return res
+          .status(400)
+          .json({ error: "Status must be 'present' or 'absent'" });
       }
 
       if (!reason || reason.trim().length < 5) {
-        return res.status(400).json({ error: "Reason is required for manual override (min 5 characters)" });
+        return res
+          .status(400)
+          .json({
+            error: "Reason is required for manual override (min 5 characters)",
+          });
       }
 
       const event = await Event.findById(eventId);
@@ -1159,8 +1647,10 @@ router.post(
         return res.status(403).json({ error: "Unauthorized access" });
       }
 
-      const registration = await Registration.findById(registrationId)
-        .populate('userId', 'firstName lastName email');
+      const registration = await Registration.findById(registrationId).populate(
+        "userId",
+        "firstName lastName email",
+      );
 
       if (!registration || registration.eventId.toString() !== eventId) {
         return res.status(404).json({ error: "Registration not found" });
@@ -1174,22 +1664,22 @@ router.post(
       registration.attendanceMarkedBy = req.user._id;
       registration.manualOverride = true;
       registration.overrideReason = reason;
-      registration.status = status === 'present' ? 'attended' : 'registered';
+      registration.status = status === "present" ? "attended" : "registered";
 
       // Add to audit log
       registration.scanHistory.push({
         timestamp: new Date(),
-        action: status === 'present' ? 'manual_present' : 'manual_absent',
+        action: status === "present" ? "manual_present" : "manual_absent",
         performedBy: req.user._id,
-        notes: reason
+        notes: reason,
       });
 
       await registration.save();
 
       // Update event attendance stats
-      if (previousStatus !== 'present' && status === 'present') {
+      if (previousStatus !== "present" && status === "present") {
         event.totalAttendance += 1;
-      } else if (previousStatus === 'present' && status === 'absent') {
+      } else if (previousStatus === "present" && status === "absent") {
         event.totalAttendance = Math.max(0, event.totalAttendance - 1);
       }
       await event.save();
@@ -1201,14 +1691,14 @@ router.post(
           email: registration.userId.email,
           status: registration.attendanceStatus,
           manualOverride: true,
-          reason: reason
-        }
+          reason: reason,
+        },
       });
     } catch (error) {
       console.error("Manual attendance error:", error);
       res.status(500).json({ error: "Failed to update attendance" });
     }
-  }
+  },
 );
 
 // GET /api/events/:id/attendance-dashboard - Live attendance stats
@@ -1231,14 +1721,20 @@ router.get(
       const registrations = await Registration.find({
         eventId: req.params.id,
         $or: [
-          { paymentApprovalStatus: 'not_required' },
-          { paymentApprovalStatus: 'approved' }
-        ]
-      }).populate('userId', 'firstName lastName email collegeName');
+          { paymentApprovalStatus: "not_required" },
+          { paymentApprovalStatus: "approved" },
+        ],
+      }).populate("userId", "firstName lastName email collegeName");
 
-      const present = registrations.filter(r => r.attendanceStatus === 'present');
-      const notChecked = registrations.filter(r => r.attendanceStatus === 'not_checked');
-      const absent = registrations.filter(r => r.attendanceStatus === 'absent');
+      const present = registrations.filter(
+        (r) => r.attendanceStatus === "present",
+      );
+      const notChecked = registrations.filter(
+        (r) => r.attendanceStatus === "not_checked",
+      );
+      const absent = registrations.filter(
+        (r) => r.attendanceStatus === "absent",
+      );
 
       res.json({
         stats: {
@@ -1246,27 +1742,28 @@ router.get(
           present: present.length,
           notYetScanned: notChecked.length,
           absent: absent.length,
-          attendanceRate: registrations.length > 0
-            ? ((present.length / registrations.length) * 100).toFixed(1)
-            : 0
+          attendanceRate:
+            registrations.length > 0
+              ? ((present.length / registrations.length) * 100).toFixed(1)
+              : 0,
         },
-        participants: registrations.map(r => ({
+        participants: registrations.map((r) => ({
           _id: r._id,
-          name: `${r.userId?.firstName || ''} ${r.userId?.lastName || ''}`.trim(),
+          name: `${r.userId?.firstName || ""} ${r.userId?.lastName || ""}`.trim(),
           email: r.userId?.email,
           collegeName: r.userId?.collegeName,
           ticketId: r.ticketId,
           attendanceStatus: r.attendanceStatus,
           attendanceTimestamp: r.attendanceTimestamp,
           manualOverride: r.manualOverride,
-          overrideReason: r.overrideReason
-        }))
+          overrideReason: r.overrideReason,
+        })),
       });
     } catch (error) {
       console.error("Attendance dashboard error:", error);
       res.status(500).json({ error: "Failed to fetch attendance data" });
     }
-  }
+  },
 );
 
 // GET /api/events/:id/export-attendance - Export attendance as CSV
@@ -1288,37 +1785,53 @@ router.get(
       const registrations = await Registration.find({
         eventId: req.params.id,
         $or: [
-          { paymentApprovalStatus: 'not_required' },
-          { paymentApprovalStatus: 'approved' }
-        ]
-      }).populate('userId', 'firstName lastName email collegeName');
+          { paymentApprovalStatus: "not_required" },
+          { paymentApprovalStatus: "approved" },
+        ],
+      }).populate("userId", "firstName lastName email collegeName");
 
       // Generate CSV
-      const headers = ['Name', 'Email', 'College', 'Ticket ID', 'Attendance Status', 'Check-in Time', 'Manual Override', 'Override Reason'];
-      const rows = registrations.map(r => [
-        `${r.userId?.firstName || ''} ${r.userId?.lastName || ''}`.trim(),
-        r.userId?.email || 'N/A',
-        r.userId?.collegeName || 'N/A',
+      const headers = [
+        "Name",
+        "Email",
+        "College",
+        "Ticket ID",
+        "Attendance Status",
+        "Check-in Time",
+        "Manual Override",
+        "Override Reason",
+      ];
+      const rows = registrations.map((r) => [
+        `${r.userId?.firstName || ""} ${r.userId?.lastName || ""}`.trim(),
+        r.userId?.email || "N/A",
+        r.userId?.collegeName || "N/A",
         r.ticketId,
         r.attendanceStatus,
-        r.attendanceTimestamp ? new Date(r.attendanceTimestamp).toLocaleString() : 'N/A',
-        r.manualOverride ? 'Yes' : 'No',
-        r.overrideReason || ''
+        r.attendanceTimestamp
+          ? new Date(r.attendanceTimestamp).toLocaleString()
+          : "N/A",
+        r.manualOverride ? "Yes" : "No",
+        r.overrideReason || "",
       ]);
 
       const csvContent = [
-        headers.join(','),
-        ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      ].join('\n');
+        headers.join(","),
+        ...rows.map((row) =>
+          row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
+        ),
+      ].join("\n");
 
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="${event.name}_attendance.csv"`);
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${event.name}_attendance.csv"`,
+      );
       res.send(csvContent);
     } catch (error) {
       console.error("Attendance export error:", error);
       res.status(500).json({ error: "Failed to export attendance" });
     }
-  }
+  },
 );
 
 // POST /api/events/verify-qr - Verify and decrypt QR code for check-in
@@ -1329,7 +1842,7 @@ router.post(
   async (req, res) => {
     try {
       const { qrData } = req.body;
-      
+
       if (!qrData) {
         return res.status(400).json({ error: "QR data is required" });
       }
@@ -1343,13 +1856,13 @@ router.post(
       }
 
       const { data: encryptedData, iv } = parsedData;
-      
+
       if (!encryptedData || !iv) {
         return res.status(400).json({ error: "Invalid QR code data" });
       }
 
       // Decrypt the QR code
-      const { decryptQRData } = require('../utils/emailService');
+      const { decryptQRData } = require("../utils/emailService");
       let decryptedData;
       try {
         decryptedData = JSON.parse(decryptQRData(encryptedData, iv));
@@ -1363,19 +1876,23 @@ router.post(
       const registration = await Registration.findOne({
         ticketId,
         userId,
-        eventId
+        eventId,
       })
-        .populate('userId', 'firstName lastName email collegeName')
-        .populate('eventId', 'name eventStartDate location organizerId');
+        .populate("userId", "firstName lastName email collegeName")
+        .populate("eventId", "name eventStartDate location organizerId");
 
       if (!registration) {
         return res.status(404).json({ error: "Registration not found" });
       }
 
       // Check if the user has permission to verify this event
-      if (req.user.type === 'club' && 
-          registration.eventId.organizerId.toString() !== req.user._id.toString()) {
-        return res.status(403).json({ error: "Unauthorized to verify this event" });
+      if (
+        req.user.type === "club" &&
+        registration.eventId.organizerId.toString() !== req.user._id.toString()
+      ) {
+        return res
+          .status(403)
+          .json({ error: "Unauthorized to verify this event" });
       }
 
       res.json({
@@ -1390,15 +1907,14 @@ router.post(
           registrationStatus: registration.status,
           attendanceStatus: registration.attendanceStatus,
           paymentStatus: registration.paymentStatus,
-          registrationDate: registration.registrationDate
-        }
+          registrationDate: registration.registrationDate,
+        },
       });
-
     } catch (error) {
       console.error("QR verification error:", error);
       res.status(500).json({ error: "Failed to verify QR code" });
     }
-  }
+  },
 );
 
 module.exports = router;
