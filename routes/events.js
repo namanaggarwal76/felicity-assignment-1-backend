@@ -746,54 +746,16 @@ router.post(
           variant.stockQuantity -= merchandiseSelection.quantity || 1;
         }
         await event.save();
-
-        // Emit socket event for real-time dashboard updates
-        const io = req.app.get("io");
-        if (io) {
-          // Notify the user about successful registration
-          io.emit("registration:created", {
-            userId: userId.toString(),
-            eventId: eventId.toString(),
-            registrationId: registration._id,
-            eventName: event.name,
-          });
-          // Notify club about new registration
-          io.emit("registration:new", {
-            clubId: event.organizerId.toString(),
-            eventId: eventId.toString(),
-            registrationId: registration._id,
-          });
-          // Update event stats globally
-          io.emit("event:updated", { eventId: eventId.toString() });
-        }
       }
 
-      // For paid events requiring approval, emit event for pending payment
+      // For paid events requiring approval
       if (paymentApprovalStatus === "pending") {
-        const io = req.app.get("io");
-        if (io) {
-          // Notify user about pending payment status
-          io.emit("registration:pending_payment", {
-            userId: userId.toString(),
-            eventId: eventId.toString(),
-            registrationId: registration._id,
-            eventName: event.name,
-          });
-        }
+        // Payment is pending
       }
 
-      // For events requiring manual approval, emit event
+      // For events requiring manual approval
       if (registrationApprovalStatus === "pending") {
-        const io = req.app.get("io");
-        if (io) {
-          // Notify club about pending registration approval
-          io.emit("registration:pending_approval", {
-            clubId: event.organizerId.toString(),
-            eventId: eventId.toString(),
-            registrationId: registration._id,
-            userId: userId.toString(),
-          });
-        }
+        // Registration approval is pending
       }
 
       // Response message
@@ -1038,32 +1000,6 @@ router.post(
       event.totalRegistrations += 1;
       await event.save();
 
-      // Emit Socket.io event for real-time updates
-      const io = req.app.get("io");
-      if (io) {
-        // Notify user about payment approval
-        io.emit("payment:approved", {
-          eventId,
-          registrationId: registration._id,
-          userId: registration.userId._id.toString(),
-        });
-        // Notify about new confirmed registration (now that payment is approved)
-        io.emit("registration:created", {
-          userId: registration.userId._id.toString(),
-          eventId: eventId.toString(),
-          registrationId: registration._id,
-          eventName: event.name,
-        });
-        // Notify club about confirmed registration
-        io.emit("registration:new", {
-          clubId: event.organizerId.toString(),
-          eventId: eventId.toString(),
-          registrationId: registration._id,
-        });
-        // Update event stats globally
-        io.emit("event:updated", { eventId: eventId.toString() });
-      }
-
       res.json({
         message: "Payment approved successfully",
         registration: {
@@ -1114,18 +1050,6 @@ router.post(
       registration.paymentRejectionReason =
         reason || "Payment rejected by organizer";
       await registration.save();
-
-      // Emit Socket.io event for real-time updates
-      const io = req.app.get("io");
-      if (io) {
-        io.emit("payment:rejected", {
-          eventId,
-          registrationId: registration._id,
-          userId: registration.userId,
-          reason: registration.paymentRejectionReason,
-        });
-        io.emit("event:updated", { eventId });
-      }
 
       res.json({
         message: "Payment rejected",
@@ -1289,17 +1213,6 @@ router.post(
         await registration.save();
       }
 
-      // Emit Socket.io event for real-time updates
-      const io = req.app.get("io");
-      if (io) {
-        io.emit("registration:approved", {
-          eventId,
-          registrationId: registration._id,
-          userId: registration.userId._id.toString(),
-        });
-        io.emit("event:updated", { eventId: eventId.toString() });
-      }
-
       res.json({
         message: "Registration approved successfully",
         registration: {
@@ -1351,18 +1264,6 @@ router.post(
       registration.registrationRejectionReason =
         reason || "Registration rejected by organizer";
       await registration.save();
-
-      // Emit Socket.io event for real-time updates
-      const io = req.app.get("io");
-      if (io) {
-        io.emit("registration:rejected", {
-          eventId,
-          registrationId: registration._id,
-          userId: registration.userId.toString(),
-          reason: registration.registrationRejectionReason,
-        });
-        io.emit("event:updated", { eventId });
-      }
 
       res.json({
         message: "Registration rejected",

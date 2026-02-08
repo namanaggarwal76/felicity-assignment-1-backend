@@ -2,32 +2,9 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const path = require("path");
-const http = require("http");
-const { Server } = require("socket.io");
 require("dotenv").config();
 
 const app = express();
-const server = http.createServer(app);
-
-// Setup Socket.io with CORS
-const io = new Server(server, {
-  cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
-    credentials: true,
-  },
-});
-
-// Make io accessible in routes
-app.set("io", io);
-
-// Socket.io connection handling
-io.on("connection", (socket) => {
-  console.log("Client connected:", socket.id);
-
-  socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
-  });
-});
 
 // Verify email configuration on startup (non-blocking)
 const { verifyEmailConfig } = require("./utils/emailService");
@@ -88,7 +65,6 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Socket.io ready for real-time updates`);
 });
