@@ -29,14 +29,13 @@ io.on("connection", (socket) => {
   });
 });
 
-// Verify email configuration on startup
+// Verify email configuration on startup (non-blocking)
 const { verifyEmailConfig } = require("./utils/emailService");
-verifyEmailConfig().catch((err) => {
-  console.warn("⚠️ Email service configuration warning:", err.message);
-  console.warn(
-    "Emails will not be sent. Please configure EMAIL_USER and EMAIL_PASSWORD in .env",
-  );
-});
+setTimeout(() => {
+  verifyEmailConfig().catch((err) => {
+    console.warn("⚠️ Email service not available:", err.message);
+  });
+}, 100);
 
 // Middleware
 app.use(

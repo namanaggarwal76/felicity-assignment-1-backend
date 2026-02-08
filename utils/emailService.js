@@ -237,21 +237,31 @@ async function sendRegistrationEmail(options) {
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log("Registration email sent:", info.messageId);
+    console.log("✅ Registration email sent:", info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error("Error sending registration email:", error);
-    throw error;
+    console.error("❌ Error sending registration email:", error.message);
+    // Don't throw - just log the error and return failure
+    return { success: false, error: error.message };
   }
 }
 
 async function verifyEmailConfig() {
   try {
-    await transporter.verify();
-    console.log("Email service is ready to send messages");
+    // Add timeout to prevent hanging
+    const verifyWithTimeout = Promise.race([
+      transporter.verify(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Connection timeout')), 10000)
+      )
+    ]);
+    
+    await verifyWithTimeout;
+    console.log("✅ Email service is ready to send messages");
     return true;
   } catch (error) {
-    console.error("Email service verification failed:", error);
+    console.warn("⚠️ Email service verification failed:", error.message);
+    console.warn("⚠️ Server will continue but emails will not be sent");
     return false;
   }
 }
