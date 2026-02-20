@@ -1,45 +1,43 @@
-const nodemailer = require("nodemailer");
-const QRCode = require("qrcode");
-const crypto = require("crypto");
+const nodemailer = require("nodemailer"); // for sedning mails using smtp
+const QRCode = require("qrcode"); // generates qr from data
+const crypto = require("crypto"); // encryption for qr code data
 
-// Email transporter configuration
+// creates a transporter object 
 const transporter = nodemailer.createTransport({
-  service: process.env.EMAIL_SERVICE || "gmail",
+  service: process.env.EMAIL_SERVICE,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD,
   },
 });
 
+// uses aes-256-cbc encryption, takes data and returns encrypted data and iv
 function encryptQRData(data) {
   const algorithm = "aes-256-cbc";
-  const key = Buffer.from(process.env.QR_ENCRYPTION_KEY, "hex"); // 32 bytes key
-  const iv = crypto.randomBytes(16); // Initialization vector
-
+  const key = Buffer.from(process.env.QR_ENCRYPTION_KEY, "hex");
+  const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv(algorithm, key, iv);
   let encrypted = cipher.update(data, "utf8", "hex");
   encrypted += cipher.final("hex");
-
   return {
     encryptedData: encrypted,
     iv: iv.toString("hex"),
   };
 }
 
+// uses same algo, takes encrypted data and iv, returns decrypted data
 function decryptQRData(encryptedData, ivHex) {
   const algorithm = "aes-256-cbc";
   const key = Buffer.from(process.env.QR_ENCRYPTION_KEY, "hex");
   const iv = Buffer.from(ivHex, "hex");
-
   const decipher = crypto.createDecipheriv(algorithm, key, iv);
   let decrypted = decipher.update(encryptedData, "hex", "utf8");
   decrypted += decipher.final("utf8");
-
   return decrypted;
 }
 
+// takes data -> encrypts it -> generates qr code buffer from encrypted data, returns both qr code buffer and encryption details (encrypted data + iv)
 async function generateEncryptedQRCode(registrationData) {
-  // Create QR data payload
   const qrData = JSON.stringify({
     ticketId: registrationData.ticketId,
     userId: registrationData.userId,
@@ -48,24 +46,17 @@ async function generateEncryptedQRCode(registrationData) {
     userName: registrationData.userName,
     registrationDate: registrationData.registrationDate,
   });
-
-  // Encrypt the QR data
   const { encryptedData, iv } = encryptQRData(qrData);
-
-  // Create the encrypted payload for QR code
   const qrPayload = JSON.stringify({
     data: encryptedData,
     iv: iv,
   });
-
-  // Generate QR code as buffer
   const qrCodeBuffer = await QRCode.toBuffer(qrPayload, {
-    errorCorrectionLevel: "H",
+    errorCorrectionLevel: "H", // high error correction 
     type: "png",
     width: 400,
     margin: 2,
   });
-
   return {
     qrCodeBuffer,
     encryptedData,
@@ -73,6 +64,7 @@ async function generateEncryptedQRCode(registrationData) {
   };
 }
 
+// sends mail 
 async function sendRegistrationEmail(options) {
   const {
     to,
@@ -95,72 +87,10 @@ async function sendRegistrationEmail(options) {
     html: `
       <!DOCTYPE html>
       <html>
-      <head>
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-          }
-          .container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-          }
-          .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-            border-radius: 10px 10px 0 0;
-          }
-          .content {
-            background: #f9f9f9;
-            padding: 30px;
-            border-radius: 0 0 10px 10px;
-          }
-          h1 {
-            margin: 0;
-            font-size: 28px;
-          }
-          h2 {
-            color: #667eea;
-            margin-top: 0;
-          }
-          .details,
-          .qr-container {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 20px 0;
-          }
-          .qr-container {
-            text-align: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-          }
-          .detail-row {
-            display: flex;
-            padding: 10px 0;
-            border-bottom: 1px solid #eee;
-          }
-          .detail-row:last-child {
-            border-bottom: none;
-          }
-          .detail-label {
-            font-weight: bold;
-            width: 150px;
-            color: #667eea;
-          }
-          .detail-value {
-            flex: 1;
-          }
-        </style>
-      </head>
-
       <body>
         <div class="container">
           <div class="header">
-            <h1>🎉 Registration Confirmed!</h1>
+            <h1>Registration Confirmed!</h1>
           </div>
 
           <div class="content">
@@ -214,7 +144,7 @@ async function sendRegistrationEmail(options) {
             </div>
 
             <div class="qr-container">
-              <h2>🎫 Your Entry Pass</h2>
+              <h2>Your Entry Pass</h2>
               <img
                 src="cid:qrcode"
                 alt="QR Code"
@@ -230,39 +160,17 @@ async function sendRegistrationEmail(options) {
       {
         filename: "qr-code.png",
         content: qrCodeBuffer,
-        cid: "qrcode", // Content ID for embedding in HTML
+        cid: "qrcode",
       },
     ],
   };
-
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log("✅ Registration email sent:", info.messageId);
+    console.log("Registration email sent:", info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error("❌ Error sending registration email:", error.message);
-    // Don't throw - just log the error and return failure
+    console.error("Error sending registration email:", error.message);
     return { success: false, error: error.message };
-  }
-}
-
-async function verifyEmailConfig() {
-  try {
-    // Add timeout to prevent hanging
-    const verifyWithTimeout = Promise.race([
-      transporter.verify(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection timeout')), 10000)
-      )
-    ]);
-    
-    await verifyWithTimeout;
-    console.log("✅ Email service is ready to send messages");
-    return true;
-  } catch (error) {
-    console.warn("⚠️ Email service verification failed:", error.message);
-    console.warn("⚠️ Server will continue but emails will not be sent");
-    return false;
   }
 }
 
@@ -271,5 +179,4 @@ module.exports = {
   decryptQRData,
   generateEncryptedQRCode,
   sendRegistrationEmail,
-  verifyEmailConfig,
 };

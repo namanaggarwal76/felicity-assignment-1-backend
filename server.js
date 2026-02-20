@@ -1,44 +1,41 @@
-const express = require("express");
-const mongoose = require("mongoose");
-const cors = require("cors");
-const path = require("path");
-require("dotenv").config();
+require("dotenv").config(); // load env variables
+const express = require("express"); // for APIs
+const cors = require("cors"); // cors middleware
+const mongoose = require("mongoose"); // for mondodb connection
+const path = require("path"); // make sure file paths work across diff operating systems
+const app = express(); // initialise express app
 
-const app = express();
-
-// Verify email configuration on startup (non-blocking)
-const { verifyEmailConfig } = require("./utils/emailService");
-setTimeout(() => {
-  verifyEmailConfig().catch((err) => {
-    console.warn("⚠️ Email service not available:", err.message);
-  });
-}, 100);
-
-// Middleware
+// cors middleware
 app.use(
   cors({
     origin: process.env.FRONTEND_URL || true,
     credentials: true,
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
+
+// parsing json bodies
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Serve static files for uploads (payment proofs, etc.) with proper headers
-app.use("/uploads", (req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET");
-  res.header("Cross-Origin-Resource-Policy", "cross-origin");
-  next();
-}, express.static(path.join(__dirname, "uploads")));
+// cors for images 
+app.use(
+  "/uploads",
+  (req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET");
+    res.header("Cross-Origin-Resource-Policy", "cross-origin"); 
+  },
+  express.static(path.join(__dirname, "uploads")),
+);
 
-// MongoDB Connection
+// mongodb connection
 mongoose
   .connect(process.env.MONGODB_URI)
   .then(() => console.log("MongoDB connected successfully"))
   .catch((err) => console.error("MongoDB connection error:", err));
 
-// Routes
+// api routes
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/admin", require("./routes/admin"));
 app.use("/api/events", require("./routes/events"));
@@ -46,22 +43,12 @@ app.use("/api/clubs", require("./routes/clubs"));
 app.use("/api/discussions", require("./routes/discussions"));
 app.use("/api/feedback", require("./routes/feedback"));
 
-// Health check route
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", message: "Server is running" });
-});
-
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error("Error:", err);
   res.status(err.status || 500).json({
     error: err.message || "Internal server error",
   });
-});
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: "Route not found" });
 });
 
 const PORT = process.env.PORT || 5000;

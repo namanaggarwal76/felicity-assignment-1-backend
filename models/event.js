@@ -58,13 +58,19 @@ const EventSchema = new mongoose.Schema(
     eventEndDate: { type: Date, required: true },
 
     // Registration
-    registrationLimit: { type: Number, required: true, min: 1 },
+    registrationLimit: {
+      type: Number,
+      required: function () {
+        return this.eventType === "normal";
+      },
+      min: 1,
+    },
     registrationFee: { type: Number, default: 0, min: 0 },
     requiresApproval: { type: Boolean, default: false },
 
     status: {
       type: String,
-      enum: ["draft", "published", "ongoing", "completed", "closed"],
+      enum: ["draft", "published", "ongoing", "completed"],
       default: "draft",
     },
 

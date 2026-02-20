@@ -22,8 +22,8 @@ const passwordResetRequestSchema = new mongoose.Schema(
       trim: true,
     },
     newPassword: {
-      type: String, // Store temporarily when approved, admin can share it
-      select: false, // Don't include by default
+      type: String,
+      select: false,
     },
     reviewedBy: {
       type: mongoose.Schema.Types.ObjectId,

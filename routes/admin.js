@@ -4,6 +4,9 @@ const User = require("../models/user");
 const Club = require("../models/club");
 const Admin = require("../models/admin");
 const PasswordResetRequest = require("../models/passwordResetRequest");
+const Event = require("../models/event");
+const Registration = require("../models/registration");
+const Feedback = require("../models/feedback");
 const bcrypt = require("bcryptjs");
 const authMiddleware = require("../middleware/authMiddleware");
 const checkRole = require("../middleware/checkRole");
@@ -17,7 +20,6 @@ router.get("/clubs", authMiddleware, checkRole(["admin"]), async (req, res) => {
     const clubs = await Club.find({}).select("-password");
     res.json({ clubs });
   } catch (error) {
-    // throws an error if something goes wrong
     console.error("Error fetching clubs:", error);
     res.status(500).json({ error: "Failed to fetch clubs" });
   }
@@ -131,19 +133,27 @@ router.delete(
   async (req, res) => {
     try {
       const { id } = req.params;
-      const club = await Club.findByIdAndDelete(id);
+
+      const club = await Club.findById(id);
       if (!club) {
         return res.status(404).json({ error: "Club not found" });
       }
+      const events = await Event.find({ organizerId: id });
+      const eventIds = events.map((event) => event._id);
 
-      // TODO: Also clean up related events, followers, etc.
-      // Remove club from users' followedClubs
+      if (eventIds.length > 0) {
+        await Registration.deleteMany({ eventId: { $in: eventIds } });
+        await Feedback.deleteMany({ eventId: { $in: eventIds } });
+        await Event.deleteMany({ organizerId: id });
+      }
+      await PasswordResetRequest.deleteMany({ email: club.email });
       await User.updateMany(
         { followedClubs: id },
         { $pull: { followedClubs: id } },
       );
+      await Club.findByIdAndDelete(id);
 
-      res.json({ message: "Club deleted successfully" });
+      res.json({ message: "Club and all associated data deleted successfully" });
     } catch (error) {
       console.error("Error deleting club:", error);
       res.status(500).json({ error: "Failed to delete club" });
@@ -190,14 +200,13 @@ router.get(
   checkRole(["admin"]),
   async (req, res) => {
     try {
-      const { status } = req.query; // Filter by status: pending, approved, rejected
+      const { status } = req.query;
       const query = status ? { status } : {};
 
       const requests = await PasswordResetRequest.find(query)
         .populate("clubId", "name email")
         .populate("reviewedBy", "firstName lastName email")
         .sort({ createdAt: -1 });
-
       res.json({ requests });
     } catch (error) {
       console.error("Error fetching password reset requests:", error);
@@ -308,73 +317,49 @@ router.post(
   },
 );
 
-// GET /api/admin/password-requests/:id - Get specific password reset request with password
-router.get(
-  "/password-requests/:id",
-  authMiddleware,
-  checkRole(["admin"]),
-  async (req, res) => {
-    try {
-      const request = await PasswordResetRequest.findById(req.params.id)
-        .populate("clubId", "name email")
-        .populate("reviewedBy", "firstName lastName email")
-        .select("+newPassword"); // Include password if approved
-
-      if (!request) {
-        return res.status(404).json({ error: "Request not found" });
-      }
-
-      res.json({ request });
-    } catch (error) {
-      console.error("Error fetching request:", error);
-      res.status(500).json({ error: "Failed to fetch request" });
-    }
-  },
-);
-
 // POST /api/admin/create-admin - create a new admin (development only, need to figure out or remove later)
-router.post("/create-admin", async (req, res) => {
-  try {
-    // gets firstName, lastName, email, password from request body
-    const { firstName, lastName, email, password } = req.body;
-    if (!firstName || !email || !password) {
-      return res
-        .status(400)
-        .json({ error: "First name, email, and password are required" });
-    }
-    // check if email already exists in any type of user
-    const [existingUser, existingClub, existingAdmin] = await Promise.all([
-      User.findOne({ email }),
-      Club.findOne({ email }),
-      Admin.findOne({ email }),
-    ]);
-    if (existingUser || existingClub || existingAdmin) {
-      return res.status(409).json({ error: "Email already exists" });
-    }
-    // Hash password
-    const saltRounds = 12;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
-    const admin = new Admin({
-      firstName,
-      lastName,
-      email,
-      password: hashedPassword,
-    });
-    await admin.save();
-    res.status(201).json({
-      message: "Admin account created successfully",
-      admin: {
-        id: admin._id,
-        firstName: admin.firstName,
-        lastName: admin.lastName,
-        email: admin.email,
-        createdAt: admin.createdAt,
-      },
-    });
-  } catch (error) {
-    console.error("Error creating admin:", error);
-    res.status(500).json({ error: "Failed to create admin account" });
-  }
-});
+// router.post("/create-admin", async (req, res) => {
+//   try {
+//     // gets firstName, lastName, email, password from request body
+//     const { firstName, lastName, email, password } = req.body;
+//     if (!firstName || !email || !password) {
+//       return res
+//         .status(400)
+//         .json({ error: "First name, email, and password are required" });
+//     }
+//     // check if email already exists in any type of user
+//     const [existingUser, existingClub, existingAdmin] = await Promise.all([
+//       User.findOne({ email }),
+//       Club.findOne({ email }),
+//       Admin.findOne({ email }),
+//     ]);
+//     if (existingUser || existingClub || existingAdmin) {
+//       return res.status(409).json({ error: "Email already exists" });
+//     }
+//     // Hash password
+//     const saltRounds = 12;
+//     const hashedPassword = await bcrypt.hash(password, saltRounds);
+//     const admin = new Admin({
+//       firstName,
+//       lastName,
+//       email,
+//       password: hashedPassword,
+//     });
+//     await admin.save();
+//     res.status(201).json({
+//       message: "Admin account created successfully",
+//       admin: {
+//         id: admin._id,
+//         firstName: admin.firstName,
+//         lastName: admin.lastName,
+//         email: admin.email,
+//         createdAt: admin.createdAt,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error creating admin:", error);
+//     res.status(500).json({ error: "Failed to create admin account" });
+//   }
+// });
 
 module.exports = router;

@@ -36,7 +36,7 @@ const fileFilter = (req, file, cb) => {
 const paymentProofUpload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5 mb limit
+    fileSize: 5*1024*1024, // 5 mb limit
   },
   fileFilter: fileFilter,
 });

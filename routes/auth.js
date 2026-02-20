@@ -103,7 +103,14 @@ router.post("/login", async (req, res) => {
     // couldnt find anywhere
     if (!user) {
       return res.status(401).json({ error: "Invalid credentials" });
+    }   
+    // Check if club is enabled
+    if (type === "club" && user.enabled === false) {
+      return res.status(403).json({ 
+        error: "Your account has been disabled. Please contact the administrator." 
+      });
     }
+
     // check password
     const isValidPassword = await bcrypt.compare(password, user.password);
     if (!isValidPassword) {
