@@ -146,7 +146,7 @@ router.delete(
         await Feedback.deleteMany({ eventId: { $in: eventIds } });
         await Event.deleteMany({ organizerId: id });
       }
-      await PasswordResetRequest.deleteMany({ email: club.email });
+      await PasswordResetRequest.deleteMany({ clubId: id });
       await User.updateMany(
         { followedClubs: id },
         { $pull: { followedClubs: id } },
@@ -160,18 +160,6 @@ router.delete(
     }
   },
 );
-
-// GET /api/admin/users - get all users
-router.get("/users", authMiddleware, checkRole(["admin"]), async (req, res) => {
-  try {
-    // fetch all users without passwords
-    const users = await User.find({}).select("-password");
-    res.json({ users });
-  } catch (error) {
-    console.error("Error fetching users:", error);
-    res.status(500).json({ error: "Failed to fetch users" });
-  }
-});
 
 // GET /api/admin/stats - get number of users and clubs
 router.get("/stats", authMiddleware, checkRole(["admin"]), async (req, res) => {

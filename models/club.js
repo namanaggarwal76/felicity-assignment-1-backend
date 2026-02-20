@@ -95,10 +95,6 @@ const clubSchema = new mongoose.Schema(
   },
 );
 
-clubSchema.virtual("actualFollowerCount").get(function () {
-  return this.followers.length;
-});
-
 clubSchema.pre("save", function () {
   this.followerCount = this.followers.length;
 });

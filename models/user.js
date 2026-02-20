@@ -59,9 +59,6 @@ const userSchema = new mongoose.Schema(
         type: String,
       },
     ],
-    metadata: {
-      type: mongoose.Schema.Types.Mixed,
-    },
   },
   {
     timestamps: true,

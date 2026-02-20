@@ -5,6 +5,8 @@ const path = require("path");
 const Event = require("../models/event");
 const Registration = require("../models/registration");
 const Club = require("../models/club");
+const Discussion = require("../models/discussion");
+const Feedback = require("../models/feedback");
 const authMiddleware = require("../middleware/authMiddleware");
 const checkRole = require("../middleware/checkRole");
 const { v4: uuidv4 } = require("uuid");
@@ -39,16 +41,16 @@ async function sendDiscordNotification(club, event) {
     await axios.post(club.discordWebhook, {
       embeds: [
         {
-          title: `🎉 New Event: ${event.name}`,
+          title: `New Event: ${event.name}`,
           description: event.description,
           fields: [
             {
-              name: "📅 Event Date",
+              name: "Event Date",
               value: new Date(event.eventStartDate).toLocaleDateString(),
               inline: true,
             },
             {
-              name: "🎫 Registration Fee",
+              name: "Registration Fee",
               value:
                 event.registrationFee > 0
                   ? `₹${event.registrationFee}`
@@ -61,7 +63,7 @@ async function sendDiscordNotification(club, event) {
               inline: true,
             },
             {
-              name: "⏰ Registration Deadline",
+              name: "Registration Deadline",
               value: new Date(event.registrationDeadline).toLocaleString(),
               inline: false,
             },
@@ -627,6 +629,12 @@ router.delete("/:id", authMiddleware, checkRole(["club"]), async (req, res) => {
     if (event.status !== "draft") {
       return res.status(400).json({ error: "Can only delete draft events" });
     }
+
+    await Promise.all([
+      Registration.deleteMany({ eventId: req.params.id }),
+      Feedback.deleteMany({ eventId: req.params.id }),
+      Discussion.deleteMany({ eventId: req.params.id }),
+    ]);
 
     await Event.findByIdAndDelete(req.params.id);
 
@@ -1479,7 +1487,9 @@ router.post(
           }
         } catch (e) {
           console.error("QR Decryption error:", e);
-          return res.status(400).json({ error: "Invalid or corrupted QR code" });
+          return res
+            .status(400)
+            .json({ error: "Invalid or corrupted QR code" });
         }
       }
 
@@ -1501,51 +1511,39 @@ router.post(
 
       // Check if registration status is valid for attendance
       if (registration.status === "cancelled") {
-        return res
-          .status(400)
-          .json({
-            error: "Cannot mark attendance - registration is cancelled",
-          });
+        return res.status(400).json({
+          error: "Cannot mark attendance - registration is cancelled",
+        });
       }
       if (registration.status === "rejected") {
-        return res
-          .status(400)
-          .json({
-            error: "Cannot mark attendance - registration was rejected",
-          });
+        return res.status(400).json({
+          error: "Cannot mark attendance - registration was rejected",
+        });
       }
       if (registration.status === "pending_approval") {
-        return res
-          .status(400)
-          .json({
-            error: "Cannot mark attendance - registration approval pending",
-          });
+        return res.status(400).json({
+          error: "Cannot mark attendance - registration approval pending",
+        });
       }
       if (
         registration.status !== "registered" &&
         registration.status !== "attended"
       ) {
-        return res
-          .status(400)
-          .json({
-            error: `Cannot mark attendance - invalid registration status: ${registration.status}`,
-          });
+        return res.status(400).json({
+          error: `Cannot mark attendance - invalid registration status: ${registration.status}`,
+        });
       }
 
       // Check if registration approval is complete
       if (registration.registrationApprovalStatus === "pending") {
-        return res
-          .status(400)
-          .json({
-            error: "Cannot mark attendance - registration approval pending",
-          });
+        return res.status(400).json({
+          error: "Cannot mark attendance - registration approval pending",
+        });
       }
       if (registration.registrationApprovalStatus === "rejected") {
-        return res
-          .status(400)
-          .json({
-            error: "Cannot mark attendance - registration was rejected",
-          });
+        return res.status(400).json({
+          error: "Cannot mark attendance - registration was rejected",
+        });
       }
 
       // Check if payment is approved for paid events
@@ -1562,11 +1560,9 @@ router.post(
 
       // Check if QR code exists (should be generated after approval)
       if (!registration.qrCodeEncrypted) {
-        return res
-          .status(400)
-          .json({
-            error: "Cannot mark attendance - ticket QR code not generated",
-          });
+        return res.status(400).json({
+          error: "Cannot mark attendance - ticket QR code not generated",
+        });
       }
 
       // Check for duplicate scan
@@ -1841,89 +1837,6 @@ router.get(
     } catch (error) {
       console.error("Attendance export error:", error);
       res.status(500).json({ error: "Failed to export attendance" });
-    }
-  },
-);
-
-// POST /api/events/verify-qr - Verify and decrypt QR code for check-in
-router.post(
-  "/verify-qr",
-  authMiddleware,
-  checkRole(["club", "admin"]),
-  async (req, res) => {
-    try {
-      const { qrData } = req.body;
-
-      if (!qrData) {
-        return res.status(400).json({ error: "QR data is required" });
-      }
-
-      // Parse the QR data
-      let parsedData;
-      try {
-        parsedData = JSON.parse(qrData);
-      } catch (e) {
-        return res.status(400).json({ error: "Invalid QR code format" });
-      }
-
-      const { data: encryptedData, iv } = parsedData;
-
-      if (!encryptedData || !iv) {
-        return res.status(400).json({ error: "Invalid QR code data" });
-      }
-
-      // Decrypt the QR code
-      const { decryptQRData } = require("../utils/emailService");
-      let decryptedData;
-      try {
-        decryptedData = JSON.parse(decryptQRData(encryptedData, iv));
-      } catch (e) {
-        return res.status(400).json({ error: "Failed to decrypt QR code" });
-      }
-
-      const { ticketId, userId, eventId } = decryptedData;
-
-      // Verify registration exists
-      const registration = await Registration.findOne({
-        ticketId,
-        userId,
-        eventId,
-      })
-        .populate("userId", "firstName lastName email collegeName")
-        .populate("eventId", "name eventStartDate location organizerId");
-
-      if (!registration) {
-        return res.status(404).json({ error: "Registration not found" });
-      }
-
-      // Check if the user has permission to verify this event
-      if (
-        req.user.type === "club" &&
-        registration.eventId.organizerId.toString() !== req.user._id.toString()
-      ) {
-        return res
-          .status(403)
-          .json({ error: "Unauthorized to verify this event" });
-      }
-
-      res.json({
-        valid: true,
-        registration: {
-          ticketId: registration.ticketId,
-          userName: `${registration.userId.firstName} ${registration.userId.lastName}`,
-          email: registration.userId.email,
-          collegeName: registration.userId.collegeName,
-          eventName: registration.eventId.name,
-          eventDate: registration.eventId.eventStartDate,
-          registrationStatus: registration.status,
-          attendanceStatus: registration.attendanceStatus,
-          paymentStatus: registration.paymentStatus,
-          registrationDate: registration.registrationDate,
-        },
-      });
-    } catch (error) {
-      console.error("QR verification error:", error);
-      res.status(500).json({ error: "Failed to verify QR code" });
     }
   },
 );

@@ -46,9 +46,8 @@ router.post("/register", async (req, res) => {
       email,
       password: hashedPassword,
       isIIITian: isIIITan || false,
-      phoneNumber,
+      contactNumber: phoneNumber,
       collegeName: isIIITan ? "IIIT Hyderabad" : collegeName,
-      metadata: { onboardingCompleted: false },
     });
     await user.save();
     const token = jwt.sign(

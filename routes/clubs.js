@@ -179,7 +179,6 @@ router.patch(
         phoneNumber,
         website,
         socialLinks,
-        establishedDate,
         discordWebhook,
       } = req.body;
       const updateData = {};
@@ -189,7 +188,6 @@ router.patch(
       if (phoneNumber) updateData.phoneNumber = phoneNumber;
       if (website) updateData.website = website;
       if (socialLinks) updateData.socialLinks = socialLinks;
-      if (establishedDate) updateData.establishedDate = establishedDate;
       if (discordWebhook !== undefined)
         updateData.discordWebhook = discordWebhook;
       const club = await Club.findByIdAndUpdate(
