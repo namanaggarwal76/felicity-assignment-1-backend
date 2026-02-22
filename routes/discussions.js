@@ -4,6 +4,63 @@ const Discussion = require("../models/discussion");
 const Event = require("../models/event");
 const Registration = require("../models/registration");
 const authMiddleware = require("../middleware/authMiddleware");
+const checkRole = require("../middleware/checkRole");
+
+// GET /api/discussions/notifications/user - Get announcement notifications for logged-in user
+router.get(
+  "/notifications/user",
+  authMiddleware,
+  checkRole(["user"]),
+  async (req, res) => {
+    try {
+      const registeredEventIds = await Registration.distinct("eventId", {
+        userId: req.user._id,
+      });
+
+      if (!registeredEventIds.length) {
+        return res.json({ notifications: [] });
+      }
+
+      const announcements = await Discussion.find({
+        eventId: { $in: registeredEventIds },
+        isAnnouncement: true,
+        parentMessageId: null,
+        deletedAt: null,
+      })
+        .populate("authorId", "firstName lastName name email")
+        .populate({
+          path: "eventId",
+          select: "name status eventStartDate eventEndDate organizerId",
+          populate: { path: "organizerId", select: "name" },
+        })
+        .sort({ createdAt: -1 });
+
+      const notifications = announcements
+        .filter((announcement) => !!announcement.eventId)
+        .map((announcement) => ({
+          _id: announcement._id,
+          message: announcement.message,
+          createdAt: announcement.createdAt,
+          event: {
+            _id: announcement.eventId._id,
+            name: announcement.eventId.name,
+            status: announcement.eventId.status,
+            eventStartDate: announcement.eventId.eventStartDate,
+            eventEndDate: announcement.eventId.eventEndDate,
+          },
+          organizerName:
+            announcement.eventId.organizerId?.name ||
+            announcement.authorId?.name ||
+            "Organizer",
+        }));
+
+      res.json({ notifications });
+    } catch (error) {
+      console.error("Error fetching user notifications:", error);
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  },
+);
 
 // GET /api/discussions/:eventId - Get all discussions for an event
 router.get("/:eventId", authMiddleware, async (req, res) => {

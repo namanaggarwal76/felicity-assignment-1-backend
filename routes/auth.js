@@ -65,6 +65,7 @@ router.post("/register", async (req, res) => {
         email: user.email,
         type: "user",
         onboardingCompleted: false,
+        followedClubs: [],
       },
     });
   } catch (error) {
@@ -134,6 +135,7 @@ router.post("/login", async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         onboardingCompleted: user.onboardingCompleted,
+        followedClubs: user.followedClubs || [],
       };
     } else if (type === "club") {
       responseData.user = {
@@ -277,6 +279,55 @@ router.post("/change-password", authMiddleware, async (req, res) => {
   } catch (error) {
     console.error("Password change error:", error);
     res.status(500).json({ error: "Server error changing password" });
+  }
+});
+
+// GET /api/auth/me - get current authenticated user data
+router.get("/me", authMiddleware, async (req, res) => {
+  try {
+    const baseUser = {
+      id: req.user._id,
+      email: req.user.email,
+      type: req.user.type,
+    };
+
+    if (req.user.type === "user") {
+      return res.json({
+        user: {
+          ...baseUser,
+          firstName: req.user.firstName,
+          lastName: req.user.lastName,
+          onboardingCompleted: req.user.onboardingCompleted,
+          followedClubs: req.user.followedClubs || [],
+          interests: req.user.interests || [],
+          isIIITian: req.user.isIIITian || false,
+          collegeName: req.user.collegeName || "",
+          contactNumber: req.user.contactNumber || "",
+        },
+      });
+    }
+
+    if (req.user.type === "club") {
+      return res.json({
+        user: {
+          ...baseUser,
+          name: req.user.name,
+          category: req.user.category,
+          followerCount: req.user.followerCount,
+        },
+      });
+    }
+
+    return res.json({
+      user: {
+        ...baseUser,
+        firstName: req.user.firstName,
+        lastName: req.user.lastName,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching current user:", error);
+    res.status(500).json({ error: "Failed to fetch user profile" });
   }
 });
 

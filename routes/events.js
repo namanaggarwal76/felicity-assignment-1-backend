@@ -1471,19 +1471,36 @@ router.post(
       // Parse QR data if provided
       let parsedQR = null;
       let decryptedTicketId = null;
+      const normalizeTicketId = (value) =>
+        typeof value === "string" ? value.trim() : "";
 
       if (qrData) {
         try {
-          parsedQR = JSON.parse(qrData);
+          const qrPayload = typeof qrData === "string" ? qrData.trim() : qrData;
 
-          // Check if it's our encrypted format
-          if (parsedQR.data && parsedQR.iv) {
-            const decryptedString = decryptQRData(parsedQR.data, parsedQR.iv);
-            const decryptedJson = JSON.parse(decryptedString);
-            decryptedTicketId = decryptedJson.ticketId;
-          } else if (parsedQR.ticketId) {
-            // Unencrypted fallback (old tickets or legacy)
-            decryptedTicketId = parsedQR.ticketId;
+          if (typeof qrPayload === "object" && qrPayload !== null) {
+            parsedQR = qrPayload;
+          } else if (typeof qrPayload === "string" && qrPayload.length > 0) {
+            try {
+              parsedQR = JSON.parse(qrPayload);
+            } catch {
+              // Support plain-text QR payloads where ticket ID itself is encoded.
+              decryptedTicketId = qrPayload;
+            }
+          }
+
+          if (parsedQR) {
+            // Check if it's our encrypted format
+            if (parsedQR.data && parsedQR.iv) {
+              const decryptedString = decryptQRData(parsedQR.data, parsedQR.iv);
+              const decryptedJson = JSON.parse(decryptedString);
+              decryptedTicketId = decryptedJson.ticketId;
+            } else if (parsedQR.ticketId) {
+              // Unencrypted fallback (old tickets or legacy)
+              decryptedTicketId = parsedQR.ticketId;
+            } else if (parsedQR.ticket && parsedQR.ticket.id) {
+              decryptedTicketId = parsedQR.ticket.id;
+            }
           }
         } catch (e) {
           console.error("QR Decryption error:", e);
@@ -1493,7 +1510,8 @@ router.post(
         }
       }
 
-      const searchTicketId = ticketId || decryptedTicketId;
+      const searchTicketId =
+        normalizeTicketId(ticketId) || normalizeTicketId(decryptedTicketId);
       if (!searchTicketId) {
         return res.status(400).json({ error: "Ticket ID is required" });
       }
@@ -1556,13 +1574,6 @@ router.post(
         return res
           .status(400)
           .json({ error: "Cannot mark attendance - payment was rejected" });
-      }
-
-      // Check if QR code exists (should be generated after approval)
-      if (!registration.qrCodeEncrypted) {
-        return res.status(400).json({
-          error: "Cannot mark attendance - ticket QR code not generated",
-        });
       }
 
       // Check for duplicate scan
