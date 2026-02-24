@@ -123,10 +123,12 @@ const registrationSchema = new mongoose.Schema(
       variantId: String,
       quantity: Number,
     },
-    formData: {
-      type: Map,
-      of: mongoose.Schema.Types.Mixed,
-    },
+    formData: [
+      {
+        fieldId: String,
+        value: mongoose.Schema.Types.Mixed,
+      },
+    ],
     teamName: {
       type: String,
       trim: true,

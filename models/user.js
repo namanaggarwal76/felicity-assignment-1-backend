@@ -56,7 +56,8 @@ const userSchema = new mongoose.Schema(
     ],
     followedClubs: [
       {
-        type: String,
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Club",
       },
     ],
   },

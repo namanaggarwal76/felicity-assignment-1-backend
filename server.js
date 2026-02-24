@@ -24,7 +24,8 @@ app.use(
   (req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Methods", "GET");
-    res.header("Cross-Origin-Resource-Policy", "cross-origin"); 
+    res.header("Cross-Origin-Resource-Policy", "cross-origin");
+    next();
   },
   express.static(path.join(__dirname, "uploads")),
 );

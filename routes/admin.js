@@ -7,6 +7,7 @@ const PasswordResetRequest = require("../models/passwordResetRequest");
 const Event = require("../models/event");
 const Registration = require("../models/registration");
 const Feedback = require("../models/feedback");
+const Discussion = require("../models/discussion");
 const bcrypt = require("bcryptjs");
 const authMiddleware = require("../middleware/authMiddleware");
 const checkRole = require("../middleware/checkRole");
@@ -144,8 +145,12 @@ router.delete(
       if (eventIds.length > 0) {
         await Registration.deleteMany({ eventId: { $in: eventIds } });
         await Feedback.deleteMany({ eventId: { $in: eventIds } });
+        await Discussion.deleteMany({ eventId: { $in: eventIds } });
         await Event.deleteMany({ organizerId: id });
       }
+      // Also delete any discussions authored by the club
+      await Discussion.deleteMany({ authorId: id, authorType: "Club" });
+
       await PasswordResetRequest.deleteMany({ clubId: id });
       await User.updateMany(
         { followedClubs: id },

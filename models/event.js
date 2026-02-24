@@ -93,8 +93,53 @@ const EventSchema = new mongoose.Schema(
     totalRevenue: { type: Number, default: 0 },
     totalAttendance: { type: Number, default: 0 },
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+    toJSON: {
+      virtuals: true,
+      transform: (doc, ret) => {
+        const now = new Date();
+        if (ret.status === "draft" || ret.status === "completed") {
+          return ret;
+        }
+
+        if (ret.status === "ongoing") {
+          if (now >= new Date(ret.eventEndDate)) {
+            ret.status = "completed";
+          }
+        } else if (ret.status === "published") {
+          if (now >= new Date(ret.eventEndDate)) {
+            ret.status = "completed";
+          } else if (now >= new Date(ret.eventStartDate)) {
+            ret.status = "ongoing";
+          }
+        }
+        return ret;
+      },
+    },
+    toObject: { virtuals: true },
+  },
 );
+
+// Virtual for effective status (for internal use)
+EventSchema.virtual("effectiveStatus").get(function () {
+  const now = new Date();
+  if (this.status === "draft") return "draft";
+  if (this.status === "completed") return "completed";
+
+  if (this.status === "ongoing") {
+    if (now >= this.eventEndDate) return "completed";
+    return "ongoing";
+  }
+
+  if (this.status === "published") {
+    if (now >= this.eventEndDate) return "completed";
+    if (now >= this.eventStartDate) return "ongoing";
+    return "published";
+  }
+
+  return this.status;
+});
 
 // Validate merchandise events have variants
 EventSchema.pre("save", async function () {

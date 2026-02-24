@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const Fuse = require("fuse.js");
 const fs = require("fs");
 const path = require("path");
 const Event = require("../models/event");
@@ -18,6 +19,7 @@ const {
   decryptQRData,
 } = require("../utils/emailService");
 const paymentProofUpload = require("../middleware/uploadMiddleware");
+const formFileUpload = require("../middleware/formUploadMiddleware");
 
 // GET /api/events/all - Get all events (Admin only)
 router.get("/all", authMiddleware, checkRole(["admin"]), async (req, res) => {
@@ -93,9 +95,18 @@ router.get("/trending", async (req, res) => {
       { $limit: 5 }, // Top 5 trending
       {
         $lookup: {
-          from: "clubs",
+          from: "events",
           localField: "_id",
-          foreignField: "organizerId",
+          foreignField: "_id",
+          as: "event",
+        },
+      },
+      { $unwind: "$event" },
+      {
+        $lookup: {
+          from: "clubs",
+          localField: "event.organizerId",
+          foreignField: "_id",
           as: "club",
         },
       },
@@ -133,6 +144,8 @@ router.get("/trending", async (req, res) => {
   }
 });
 
+const query = {};
+
 // GET /api/events - Get all published events (public) with filters
 router.get("/", async (req, res) => {
   try {
@@ -146,22 +159,58 @@ router.get("/", async (req, res) => {
       status,
     } = req.query;
 
-    // Default status to published/ongoing if not specified
-    const query = {};
-    if (status) {
-      query.status = { $in: status.split(",") };
-      if (query.status.$in.includes("draft")) {
-        query.status.$in = query.status.$in.filter((s) => s !== "draft");
+    // Build status-based query with time-derivation logic
+    const now = new Date();
+    const statusArray = status ? status.split(",") : ["published", "ongoing"];
+    const statusQueries = [];
+
+    statusArray.forEach((s) => {
+      if (s === "published") {
+        // Effective 'published' (upcoming)
+        statusQueries.push({
+          status: "published",
+          eventStartDate: { $gt: now },
+        });
+      } else if (s === "ongoing") {
+        // Effective 'ongoing'
+        statusQueries.push({
+          $or: [
+            {
+              status: "published",
+              eventStartDate: { $lte: now },
+              eventEndDate: { $gt: now },
+            },
+            {
+              status: "ongoing",
+              eventEndDate: { $gt: now },
+            },
+          ],
+        });
+      } else if (s === "completed") {
+        // Effective 'completed'
+        statusQueries.push({
+          $or: [
+            { status: "completed" },
+            {
+              status: { $in: ["published", "ongoing"] },
+              eventEndDate: { $lte: now },
+            },
+          ],
+        });
       }
-    } else {
-      query.status = { $in: ["published", "ongoing"] };
+    });
+
+    if (statusQueries.length > 0) {
+      query.$or = statusQueries;
     }
 
     if (type) query.eventType = type;
     if (eligibility) query.eligibility = eligibility;
 
     if (startDate || endDate) {
-      query.eventStartDate = {};
+      // If we already have $or from status, we need to wrap it in $and
+      // but Mongoose handles multiple query keys as $and by default
+      query.eventStartDate = query.eventStartDate || {};
       if (startDate) query.eventStartDate.$gte = new Date(startDate);
       if (endDate) query.eventStartDate.$lte = new Date(endDate);
     }
@@ -175,23 +224,19 @@ router.get("/", async (req, res) => {
     } else {
       query.organizerId = { $nin: disabledClubIds };
     }
-
-    if (search) {
-      // Search event name OR organizer name.
-      const clubs = await Club.find({
-        name: { $regex: search, $options: "i" },
-      });
-      const clubIds = clubs.map((c) => c._id);
-
-      query.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { organizerId: { $in: clubIds } },
-      ];
-    }
-
-    const events = await Event.find(query)
+    let events = await Event.find(query)
       .populate("organizerId", "name email category")
       .sort({ eventStartDate: 1 });
+
+    if (search) {
+      const fuse = new Fuse(events, {
+        keys: ["name", "organizerId.name", "tags"],
+        threshold: 0.4,
+        ignoreLocation: true,
+      });
+      events = fuse.search(search).map((result) => result.item);
+    }
+
     res.json({ events });
   } catch (error) {
     console.error("Error fetching events:", error);
@@ -257,7 +302,34 @@ router.get(
         return res.status(403).json({ error: "Unauthorized access" });
       }
 
-      res.json({ event });
+      // Compute revenue dynamically from approved/paid registrations for this event
+      const approvedRegistrations = await Registration.find({
+        eventId: event._id,
+        $or: [
+          { paymentStatus: "completed", paymentApprovalStatus: "approved" },
+          { paymentStatus: "free", paymentApprovalStatus: "not_required" },
+        ],
+        status: { $nin: ["cancelled", "rejected"] },
+      });
+
+      let computedRevenue = 0;
+      for (const reg of approvedRegistrations) {
+        if (event.eventType === "merchandise" && reg.merchandiseSelection?.variantId) {
+          const variant = event.merchandiseDetails?.variants?.find(
+            (v) => v.variantId === reg.merchandiseSelection.variantId
+          );
+          if (variant) {
+            computedRevenue += variant.price * (reg.merchandiseSelection.quantity || 1);
+          }
+        } else if (event.eventType === "normal") {
+          computedRevenue += event.registrationFee || 0;
+        }
+      }
+
+      const eventObj = event.toObject();
+      eventObj.totalRevenue = computedRevenue;
+
+      res.json({ event: eventObj });
     } catch (error) {
       console.error("Error fetching event:", error);
       res.status(500).json({ error: "Failed to fetch event" });
@@ -276,12 +348,49 @@ router.get(
         organizerId: req.user._id,
       });
 
+      const eventIds = events.map((e) => e._id);
+      const approvedRegistrations = await Registration.find({
+        eventId: { $in: eventIds },
+        $or: [
+          { paymentStatus: "completed", paymentApprovalStatus: "approved" },
+          { paymentStatus: "free", paymentApprovalStatus: "not_required" },
+        ],
+        status: { $nin: ["cancelled", "rejected"] },
+      });
+
+      // Build a fee lookup from events
+      const eventFeeMap = {};
+      for (const e of events) {
+        if (e.eventType === "merchandise") {
+          // fee is per-variant; we'll calculate per registration below
+          eventFeeMap[e._id.toString()] = { type: "merchandise", event: e };
+        } else {
+          eventFeeMap[e._id.toString()] = { type: "normal", fee: e.registrationFee || 0 };
+        }
+      }
+
+      let totalRevenue = 0;
+      for (const reg of approvedRegistrations) {
+        const info = eventFeeMap[reg.eventId.toString()];
+        if (!info) continue;
+        if (info.type === "merchandise" && reg.merchandiseSelection?.variantId) {
+          const variant = info.event.merchandiseDetails?.variants?.find(
+            (v) => v.variantId === reg.merchandiseSelection.variantId
+          );
+          if (variant) {
+            totalRevenue += variant.price * (reg.merchandiseSelection.quantity || 1);
+          }
+        } else if (info.type === "normal") {
+          totalRevenue += info.fee;
+        }
+      }
+
       const summary = {
         totalRegistrations: events.reduce(
           (sum, e) => sum + (e.totalRegistrations || 0),
           0,
         ),
-        totalRevenue: events.reduce((sum, e) => sum + (e.totalRevenue || 0), 0),
+        totalRevenue,
         totalAttendance: events.reduce(
           (sum, e) => sum + (e.totalAttendance || 0),
           0,
@@ -650,11 +759,49 @@ router.post(
   "/:id/register",
   authMiddleware,
   checkRole(["user"]),
+  formFileUpload.any(),
   async (req, res) => {
     try {
       const eventId = req.params.id;
       const userId = req.user._id;
-      const { formData, merchandiseSelection, teamName } = req.body;
+
+      let { formData, merchandiseSelection, teamName } = req.body;
+
+      // Handle file uploads if any
+      if (req.files && req.files.length > 0) {
+        // If formData comes as a string (happens with multipart/form-data)
+        if (typeof formData === "string") {
+          try {
+            formData = JSON.parse(formData);
+          } catch (e) {
+            formData = {};
+          }
+        }
+
+        // formData is expected to be an object or array depending on how frontend sends it
+        // The original code uses it as an array of { fieldId, value } objects usually
+        // Let's assume frontend sends it as a JSON string of that array if it's multipart
+
+        if (Array.isArray(formData)) {
+          req.files.forEach(file => {
+            const fieldIndex = formData.findIndex(f => f.fieldId === file.fieldname);
+            if (fieldIndex !== -1) {
+              formData[fieldIndex].value = file.filename;
+            } else {
+              formData.push({ fieldId: file.fieldname, value: file.filename });
+            }
+          });
+        } else if (formData && typeof formData === 'object') {
+          req.files.forEach(file => {
+            formData[file.fieldname] = file.filename;
+          });
+        }
+      }
+
+      if (typeof merchandiseSelection === "string") {
+        try { merchandiseSelection = JSON.parse(merchandiseSelection); } catch (e) { }
+      }
+
 
       const event = await Event.findById(eventId);
       if (!event) return res.status(404).json({ error: "Event not found" });
@@ -669,6 +816,18 @@ router.post(
         return res
           .status(400)
           .json({ error: "Registration deadline has passed" });
+      }
+
+      // Eligibility Check
+      if (event.eligibility === "iiitans" && !req.user.isIIITian) {
+        return res
+          .status(403)
+          .json({ error: "This event is restricted to IIITians only" });
+      }
+      if (event.eligibility === "external" && req.user.isIIITian) {
+        return res
+          .status(403)
+          .json({ error: "This event is restricted to external participants only" });
       }
 
       if (event.totalRegistrations >= event.registrationLimit) {
@@ -1055,11 +1214,7 @@ router.post(
         if (variant) {
           variant.stockQuantity -=
             registration.merchandiseSelection.quantity || 1;
-          event.totalRevenue += paidAmount;
         }
-      } else if (event.registrationFee > 0) {
-        // For normal paid events
-        event.totalRevenue += event.registrationFee;
       }
       event.totalRegistrations += 1;
       await event.save();
@@ -1292,9 +1447,6 @@ router.post(
         // Update event stats if payment is not required
         if (registration.paymentApprovalStatus === "not_required") {
           event.totalRegistrations += 1;
-          if (event.registrationFee > 0) {
-            event.totalRevenue += event.registrationFee;
-          }
           await event.save();
         }
       } else {

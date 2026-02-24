@@ -30,7 +30,9 @@ module.exports = async function authMiddleware(req, res, next) {
           .json({ error: "Club account is disabled. Contact admin." });
       }
     } else {
-      user = await User.findById(decoded.id).select("-password");
+      user = await User.findById(decoded.id)
+        .select("-password")
+        .populate("followedClubs", "name category");
     }
     if (!user) {
       return res.status(401).json({ error: "User not found" });
