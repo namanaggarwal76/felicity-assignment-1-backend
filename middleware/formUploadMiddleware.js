@@ -30,7 +30,7 @@ const fileFilter = (req, file, cb) => {
         cb(null, true);
     } else {
         cb(
-            new Error("Invalid file type. Allowed: JPG, PNG, PDF, DOC, DOCX"),
+            new Error("Invalid file type. Allowed: JPG, PNG, PDF"),
             false,
         );
     }

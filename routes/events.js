@@ -302,7 +302,6 @@ router.get(
         return res.status(403).json({ error: "Unauthorized access" });
       }
 
-      // Compute revenue dynamically from approved/paid registrations for this event
       const approvedRegistrations = await Registration.find({
         eventId: event._id,
         $or: [
@@ -326,8 +325,14 @@ router.get(
         }
       }
 
+      const confirmedRegistrations = await Registration.countDocuments({
+        eventId: event._id,
+        status: { $in: ["registered", "attended"] },
+      });
+
       const eventObj = event.toObject();
       eventObj.totalRevenue = computedRevenue;
+      eventObj.totalRegistrations = confirmedRegistrations;
 
       res.json({ event: eventObj });
     } catch (error) {
@@ -349,6 +354,13 @@ router.get(
       });
 
       const eventIds = events.map((e) => e._id);
+
+      // Compute totalRegistrations dynamically (confirmed registrations only)
+      const totalRegistrations = await Registration.countDocuments({
+        eventId: { $in: eventIds },
+        status: { $in: ["registered", "attended"] },
+      });
+
       const approvedRegistrations = await Registration.find({
         eventId: { $in: eventIds },
         $or: [
@@ -386,10 +398,7 @@ router.get(
       }
 
       const summary = {
-        totalRegistrations: events.reduce(
-          (sum, e) => sum + (e.totalRegistrations || 0),
-          0,
-        ),
+        totalRegistrations,
         totalRevenue,
         totalAttendance: events.reduce(
           (sum, e) => sum + (e.totalAttendance || 0),
