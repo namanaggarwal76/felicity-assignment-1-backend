@@ -778,7 +778,6 @@ router.post(
 
       // Handle file uploads if any
       if (req.files && req.files.length > 0) {
-        // If formData comes as a string (happens with multipart/form-data)
         if (typeof formData === "string") {
           try {
             formData = JSON.parse(formData);
@@ -786,11 +785,6 @@ router.post(
             formData = {};
           }
         }
-
-        // formData is expected to be an object or array depending on how frontend sends it
-        // The original code uses it as an array of { fieldId, value } objects usually
-        // Let's assume frontend sends it as a JSON string of that array if it's multipart
-
         if (Array.isArray(formData)) {
           req.files.forEach(file => {
             const fieldIndex = formData.findIndex(f => f.fieldId === file.fieldname);
